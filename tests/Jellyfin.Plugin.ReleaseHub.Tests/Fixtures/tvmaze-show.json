@@ -1,0 +1,36 @@
+{
+  "id": 2993,
+  "url": "https://www.tvmaze.com/shows/2993/stranger-things",
+  "name": "Stranger Things",
+  "type": "Scripted",
+  "language": "English",
+  "genres": ["Drama", "Fantasy", "Science-Fiction"],
+  "status": "Ended",
+  "runtime": null,
+  "averageRuntime": 65,
+  "premiered": "2016-07-15",
+  "ended": "2025-12-31",
+  "officialSite": "https://www.netflix.com/title/80057281",
+  "schedule": { "time": "", "days": [] },
+  "rating": { "average": 8.4 },
+  "weight": 100,
+  "network": null,
+  "webChannel": {
+    "id": 1,
+    "name": "Netflix",
+    "country": null,
+    "officialSite": "https://www.netflix.com/"
+  },
+  "dvdCountry": null,
+  "externals": {
+    "tvrage": 48493,
+    "thetvdb": 305288,
+    "imdb": "tt4574334"
+  },
+  "image": {
+    "medium": "https://static.tvmaze.com/uploads/images/medium_portrait/595/1489169.jpg",
+    "original": "https://static.tvmaze.com/uploads/images/original_untouched/595/1489169.jpg"
+  },
+  "summary": "<p>When a young boy vanishes, a small town uncovers a mystery involving secret experiments.</p>",
+  "updated": 1767306162
+}

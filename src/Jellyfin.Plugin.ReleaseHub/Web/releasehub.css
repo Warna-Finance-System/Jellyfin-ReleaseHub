@@ -1,0 +1,792 @@
+/*
+ * ReleaseHub styling.
+ *
+ * Jellyfin themes (dark, light, Abyss, ...) restyle Jellyfin's own CSS *classes* rather than exposing
+ * a set of CSS custom properties, so theme compatibility comes from reusing those classes and never
+ * hardcoding a colour. Everything below therefore sticks to `currentColor` and neutral rgba veils,
+ * which read correctly on both light and dark grounds. There is no Abyss-specific selector here, and
+ * the plugin keeps working when the user switches theme.
+ */
+
+.releasehub-root {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6em;
+  padding-bottom: 2em;
+}
+
+/*
+ * The full-page view rendered inside the ordinary user layout (not the dashboard).
+ *
+ * It is a fixed layer rather than a block in the flow: the home view it covers stays mounted, and
+ * plugins such as a backdrop slideshow paint above ordinary page content, so anything less than a
+ * full opaque layer lets them bleed through. z-index sits below Jellyfin's header (999) so the
+ * header and its tabs stay usable, and above everything the page itself draws.
+ *
+ * The background colour is set inline at runtime, sampled from the active theme.
+ */
+.releasehub-page {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6.5em 3.3% 2em;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Jellyfin's own backdrop must not keep animating behind an opaque page. */
+body.releasehub-open .backdropContainer,
+body.releasehub-open .backgroundContainer.withBackdrop {
+  display: none !important;
+}
+
+/*
+ * The covered page keeps its own scrollbar otherwise, so the window shows two: one scrolling
+ * ReleaseHub and one scrolling the hidden page behind it.
+ */
+body.releasehub-open {
+  overflow: hidden !important;
+}
+
+@media (max-width: 50em) {
+  .releasehub-page {
+    padding: 5.5em 4% 2em;
+  }
+}
+
+.releasehub-icon {
+  font-size: 1.25em;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+/* ------------------------------------------------------------------ header */
+
+.releasehub-header {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* A veil rather than a colour: it darkens on dark themes and lightens on light ones. */
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 0.75em 0 0.5em;
+  margin-bottom: -0.5em;
+}
+
+.releasehub-titleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1em;
+}
+
+.releasehub-title {
+  margin: 0;
+}
+
+/* -------------------------------------------------------------------- tabs */
+
+.releasehub-tabs {
+  display: flex;
+  gap: 0.25em;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.releasehub-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.releasehub-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.6em 1em;
+  background: transparent;
+  border: none;
+  border-bottom: 0.16em solid transparent;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: inherit;
+}
+
+/* `.emby-tab-button-active` is themed by Jellyfin; the underline is the only thing added here. */
+.releasehub-tab.emby-tab-button-active {
+  border-bottom-color: currentColor;
+}
+
+/* ----------------------------------------------------------------- filters */
+
+.releasehub-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  flex-wrap: wrap;
+}
+
+.releasehub-filterSpacer {
+  flex: 1 1 auto;
+  min-width: 0.5em;
+}
+
+.releasehub-chip {
+  padding: 0.4em 0.9em;
+  border-radius: 999px;
+  border: 0.08em solid currentColor;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.65;
+  font-size: 0.92em;
+}
+
+.releasehub-chip:hover {
+  opacity: 0.9;
+}
+
+.releasehub-chip-active {
+  opacity: 1;
+  /* Inverting via currentColor keeps the active chip legible whatever the theme's accent is. */
+  background: rgba(127, 127, 127, 0.28);
+}
+
+/* --------------------------------------------------------------- day lists */
+
+.releasehub-freshness {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
+.releasehub-daySection {
+  margin-bottom: 1.75em;
+}
+
+.releasehub-dayHeading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75em;
+  margin: 0 0 0.6em;
+  text-transform: capitalize;
+}
+
+.releasehub-dayRelative {
+  font-size: 0.7em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+}
+
+.releasehub-dayItems {
+  display: flex;
+  flex-direction: column;
+  border-radius: 0.35em;
+  overflow: hidden;
+}
+
+.releasehub-release {
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  padding: 0.65em 0.85em;
+  border-bottom: 0.06em solid rgba(127, 127, 127, 0.18);
+}
+
+.releasehub-release:last-child {
+  border-bottom: none;
+}
+
+.releasehub-poster {
+  flex: 0 0 auto;
+  width: 3.2em;
+  height: 4.8em;
+  border-radius: 0.25em;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(127, 127, 127, 0.18);
+}
+
+.releasehub-posterImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.releasehub-releaseBody {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+}
+
+.releasehub-releaseTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  flex-wrap: wrap;
+  font-weight: 500;
+}
+
+.releasehub-releaseMeta,
+.releasehub-releaseFooter {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  flex-wrap: wrap;
+  font-size: 0.86em;
+}
+
+.releasehub-episodeTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 28em;
+}
+
+.releasehub-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.releasehub-muted {
+  opacity: 0.5;
+}
+
+.releasehub-filterDivider {
+  width: 0.06em;
+  align-self: stretch;
+  margin: 0.2em 0.35em;
+  background: rgba(127, 127, 127, 0.35);
+}
+
+.releasehub-layoutChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+/* ------------------------------------------------------- layout: week grid */
+
+.releasehub-weekGrid {
+  display: grid;
+  /* Exactly seven equal columns: every day of the week is present, empty ones included, so the week
+     always reads as a week rather than as a list of the days that happen to have something on. */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.6em;
+  align-items: stretch;
+}
+
+.releasehub-weekColumn {
+  display: flex;
+  flex-direction: column;
+  border-radius: 0.4em;
+  overflow: hidden;
+  background: rgba(127, 127, 127, 0.09);
+}
+
+.releasehub-weekHeader {
+  padding: 0.6em 0.75em;
+  background: rgba(127, 127, 127, 0.18);
+  text-align: center;
+}
+
+/*
+ * Today is marked by a complete outline around the whole column.
+ *
+ * An inset shadow on the header alone drew a bright line under the header and down one side only,
+ * which read as a rendering fault rather than as emphasis. `outline` covers all four sides whatever
+ * the column's height, and a neutral grey keeps it theme-agnostic instead of glaring white on dark.
+ */
+.releasehub-weekColumn-today {
+  outline: 0.11em solid rgba(127, 127, 127, 0.75);
+  outline-offset: -0.11em;
+}
+
+.releasehub-weekColumn-today .releasehub-weekHeader {
+  background: rgba(127, 127, 127, 0.32);
+}
+
+.releasehub-weekColumn-today .releasehub-weekDay {
+  font-weight: 700;
+}
+
+.releasehub-weekDay {
+  font-weight: 600;
+  text-transform: capitalize;
+  font-size: 0.95em;
+  line-height: 1.35;
+}
+
+/*
+ * Always rendered, even when empty. Reserving the line keeps every column header exactly the same
+ * height, so the day that happens to be today does not push its own column out of alignment with
+ * the rest of the week.
+ */
+.releasehub-weekToday {
+  font-size: 0.72em;
+  line-height: 1.4;
+  min-height: 1.4em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.75;
+  margin-top: 0.1em;
+}
+
+/* ------------------------------------------------------- week navigation */
+
+.releasehub-weekNav {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  margin-bottom: 0.9em;
+}
+
+.releasehub-weekNavButton {
+  border: none;
+  background: rgba(127, 127, 127, 0.16);
+  color: inherit;
+  cursor: pointer;
+  border-radius: 50%;
+  width: 2.2em;
+  height: 2.2em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.releasehub-weekNavButton:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.releasehub-weekRange {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.releasehub-weekTodayButton {
+  margin-left: auto;
+}
+
+.releasehub-weekEmpty {
+  padding: 0.9em 0.7em;
+  text-align: center;
+  opacity: 0.3;
+}
+
+.releasehub-weekItems {
+  display: flex;
+  flex-direction: column;
+}
+
+.releasehub-weekCell {
+  padding: 0.55em 0.7em;
+  border-bottom: 0.06em solid rgba(127, 127, 127, 0.16);
+}
+
+.releasehub-weekCell:last-child {
+  border-bottom: none;
+}
+
+/* A muted accent rather than a bright bar, so it reads as a marker and not as a stray border. */
+.releasehub-weekCell-library {
+  box-shadow: inset 0.18em 0 0 rgba(127, 127, 127, 0.8);
+}
+
+.releasehub-weekTitle {
+  font-size: 0.9em;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.releasehub-weekMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  flex-wrap: wrap;
+  font-size: 0.8em;
+  margin-top: 0.2em;
+}
+
+/* ----------------------------------------------------- layout: poster grid */
+
+.releasehub-posterGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5em, 1fr));
+  gap: 1em;
+}
+
+.releasehub-posterCard {
+  display: flex;
+  flex-direction: column;
+  border-radius: 0.4em;
+  overflow: hidden;
+  background: rgba(127, 127, 127, 0.1);
+}
+
+.releasehub-posterArt {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(127, 127, 127, 0.18);
+  overflow: hidden;
+}
+
+.releasehub-posterArt .releasehub-posterImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.releasehub-posterArt .releasehub-icon {
+  font-size: 2.5em;
+  opacity: 0.45;
+}
+
+.releasehub-posterTags {
+  position: absolute;
+  top: 0.35em;
+  left: 0.35em;
+  right: 0.35em;
+  display: flex;
+  gap: 0.25em;
+  flex-wrap: wrap;
+}
+
+.releasehub-posterTags .releasehub-badge {
+  font-size: 0.65em;
+  /* Sits on artwork, so it needs its own ground rather than the page background. */
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.releasehub-posterTitle {
+  padding: 0.55em 0.6em 0.3em;
+  font-size: 0.88em;
+  font-weight: 500;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.releasehub-posterFooter {
+  margin-top: auto;
+  padding: 0 0.6em 0.6em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+  font-size: 0.8em;
+}
+
+.releasehub-posterTime,
+.releasehub-posterEpisode {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+}
+
+.releasehub-posterTime .releasehub-icon,
+.releasehub-posterEpisode .releasehub-icon {
+  font-size: 1em;
+  opacity: 0.7;
+}
+
+/* ------------------------------------------------------------------ badges */
+
+.releasehub-badge {
+  display: inline-block;
+  padding: 0.12em 0.5em;
+  border-radius: 0.25em;
+  font-size: 0.78em;
+  line-height: 1.5;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border: 0.08em solid currentColor;
+  opacity: 0.85;
+}
+
+/* Filled variants use a neutral veil so they stay readable on any theme background. */
+.releasehub-badge-library,
+.releasehub-badge-followed {
+  background: rgba(127, 127, 127, 0.22);
+}
+
+.releasehub-badge-approx {
+  border-style: dashed;
+  text-transform: none;
+}
+
+.releasehub-badge-provider,
+.releasehub-badge-status {
+  border-color: transparent;
+  background: rgba(127, 127, 127, 0.18);
+  text-transform: none;
+}
+
+/* ------------------------------------------------------------------- cards */
+
+.releasehub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15em, 1fr));
+  gap: 1em;
+}
+
+.releasehub-card {
+  display: flex;
+  gap: 0.9em;
+  padding: 0.8em;
+  border-radius: 0.4em;
+  background: rgba(127, 127, 127, 0.1);
+}
+
+.releasehub-card .releasehub-poster {
+  width: 4.5em;
+  height: 6.75em;
+}
+
+.releasehub-cardInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.releasehub-cardTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  font-weight: 500;
+}
+
+.releasehub-cardYear {
+  font-size: 0.85em;
+}
+
+.releasehub-cardTags {
+  display: flex;
+  gap: 0.35em;
+  flex-wrap: wrap;
+}
+
+.releasehub-cardGenres,
+.releasehub-cardOriginal {
+  font-size: 0.85em;
+}
+
+.releasehub-cardSummary {
+  font-size: 0.85em;
+  margin: 0.2em 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.releasehub-cardAction {
+  align-self: flex-start;
+  margin-top: 0.4em;
+  padding: 0.4em 1em;
+}
+
+/* ------------------------------------------------------------------ search */
+
+/*
+ * One control, not three. The magnifier lives inside the field as an affordance rather than as a
+ * button, because the search runs as you type; there is nothing left to click.
+ */
+.releasehub-searchField {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0 0.9em;
+  border-radius: 0.3em;
+  background: rgba(127, 127, 127, 0.14);
+}
+
+.releasehub-searchIcon {
+  flex: 0 0 auto;
+  opacity: 0.65;
+  font-size: 1.4em;
+}
+
+.releasehub-searchInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Overrides .emby-input's own chrome: the wrapper provides the field's appearance. */
+  background: transparent !important;
+  border: none !important;
+  outline: none;
+  padding: 0.85em 0;
+  font-size: 1.05em;
+  color: inherit;
+}
+
+.releasehub-searchInput::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
+.releasehub-searchSpinner {
+  flex: 0 0 auto;
+  font-size: 0.82em;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.releasehub-posterAction {
+  margin-top: 0.4em;
+  padding: 0.3em 0.8em;
+  font-size: 0.85em;
+  align-self: flex-start;
+}
+
+.releasehub-posterDate {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+}
+
+.releasehub-posterDate .releasehub-icon {
+  font-size: 1em;
+  opacity: 0.7;
+}
+
+/* ------------------------------------------------------------- empty/error */
+
+.releasehub-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6em;
+  padding: 3.5em 1em;
+  text-align: center;
+  opacity: 0.75;
+}
+
+.releasehub-empty .releasehub-icon {
+  font-size: 3em;
+  opacity: 0.5;
+}
+
+.releasehub-emptyTitle {
+  font-size: 1.1em;
+  font-weight: 500;
+}
+
+.releasehub-emptyHint {
+  max-width: 32em;
+  font-size: 0.9em;
+}
+
+.releasehub-loading {
+  padding: 2.5em 1em;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.releasehub-attribution {
+  font-size: 0.8em;
+  opacity: 0.6;
+  padding-top: 1em;
+  border-top: 0.06em solid rgba(127, 127, 127, 0.2);
+}
+
+/* -------------------------------------------------------------- responsive */
+
+/* Between phone and desktop, seven columns are too narrow to read but stacking wastes the width. */
+@media (min-width: 50.01em) and (max-width: 80em) {
+  .releasehub-weekGrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 50em) {
+  .releasehub-tabLabel,
+  .releasehub-layoutLabel {
+    display: none;
+  }
+
+  /* Seven columns are unreadable on a phone: days become stacked blocks instead of a squeeze. */
+  .releasehub-weekGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .releasehub-weekColumn {
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  .releasehub-weekHeader {
+    flex: 0 0 7.5em;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: left;
+  }
+
+  .releasehub-weekItems {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .releasehub-posterGrid {
+    grid-template-columns: repeat(auto-fill, minmax(7.5em, 1fr));
+    gap: 0.7em;
+  }
+
+  .releasehub-tab {
+    padding: 0.6em 0.9em;
+  }
+
+  .releasehub-episodeTitle {
+    max-width: 14em;
+  }
+
+  .releasehub-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .releasehub-dayHeading {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15em;
+  }
+}
+
+@media (max-width: 30em) {
+  .releasehub-release {
+    gap: 0.7em;
+    padding: 0.6em 0.5em;
+  }
+
+  .releasehub-poster {
+    width: 2.6em;
+    height: 3.9em;
+  }
+
+  .releasehub-searchRow {
+    flex-direction: column;
+  }
+}

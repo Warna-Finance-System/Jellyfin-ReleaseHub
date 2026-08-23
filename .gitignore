@@ -1,0 +1,27 @@
+# Build output
+bin/
+obj/
+artifacts/
+*.user
+*.suo
+
+# Rider / VS / VS Code
+.idea/
+.vs/
+.vscode/
+
+# NuGet
+*.nupkg
+packages/
+
+# Plugin packaging output
+dist/
+package/
+*.zip
+manifest.json.tmp
+
+# Never commit provider credentials or a live plugin configuration.
+# The AnimeSchedule API key is stored server-side in this file at runtime.
+Jellyfin.Plugin.ReleaseHub.xml
+secrets.json
+*.local.env

@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Jellyfin 10.11.x runs on net9.0 (verified in jellyfin.runtimeconfig.json). Do not raise this:
+         a plugin built for a newer TFM will not load into the 10.11.11 server. -->
+    <TargetFramework>net9.0</TargetFramework>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.0.0.0</Version>
+    <RootNamespace>Jellyfin.Plugin.ReleaseHub</RootNamespace>
+    <AssemblyName>Jellyfin.Plugin.ReleaseHub</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>false</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- CA1848: source-generated LoggerMessage delegates. The plugin logs a handful of lines at startup
+         and around provider failures, never on a hot path, so the readability cost is not worth paying.
+         CA1822: ASP.NET Core controller actions are conventionally instance members even when they touch
+         no instance state. -->
+    <NoWarn>$(NoWarn);CA1848;CA1822</NoWarn>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Product>Jellyfin ReleaseHub</Product>
+    <Company>Warna</Company>
+    <Description>Unified TV series and anime release calendar, tracking and discovery for Jellyfin.</Description>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Every package below is already shipped inside the Jellyfin server directory.
+         ExcludeAssets="runtime" compiles against them without copying duplicate DLLs into the
+         plugin folder, which is what causes assembly-load conflicts at server startup. -->
+    <PackageReference Include="Jellyfin.Controller" Version="10.11.11">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+    <PackageReference Include="Jellyfin.Model" Version="10.11.11">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+    <!-- Server ships Microsoft.Data.Sqlite 9.0.11 alongside e_sqlite3.dll; we reuse that provider
+         for the plugin's own cache database rather than bundling a second SQLite native library. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.11">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+    <!-- Only needed to build the JObject that File Transformation's PluginInterface.RegisterTransformation
+         accepts. The server ships Newtonsoft.Json 13.0.4; ReleaseHub's own serialization uses System.Text.Json. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Provider mappers and the matcher are internal: they are implementation detail for consumers,
+         but they are also the parts most likely to break when a provider changes its output, so the
+         test project gets to exercise them directly rather than through a network call. -->
+    <InternalsVisibleTo Include="Jellyfin.Plugin.ReleaseHub.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Web assets and localization files are served to the browser through
+         GET /web/ConfigurationPage?name=... , so they must be embedded in the assembly. -->
+    <EmbeddedResource Include="Configuration\configPage.html" />
+    <EmbeddedResource Include="Web\**\*.html" />
+    <EmbeddedResource Include="Web\**\*.js" />
+    <EmbeddedResource Include="Web\**\*.css" />
+    <EmbeddedResource Include="Localization\**\*.json" />
+  </ItemGroup>
+
+</Project>

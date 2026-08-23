@@ -1,0 +1,127 @@
+name: Release
+
+# Publishing is driven entirely by tags: pushing v1.0.0.1 builds that version, publishes the release
+# asset, and prepends the matching entry to manifest.json so Jellyfin servers subscribed to the
+# repository see the update without anyone editing the manifest by hand.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish, for example 1.0.0.1'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          # Needed so the manifest commit can be pushed back onto the default branch.
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+
+          # Jellyfin compares plugin versions as four-part System.Version values, so reject anything
+          # that would install but then sort unpredictably against other releases.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Version '$VERSION' must have four numeric parts, for example 1.0.0.1"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Read target ABI from build.yaml
+        id: abi
+        run: |
+          ABI=$(grep -E '^targetAbi:' build.yaml | sed -E 's/.*"(.*)".*/\1/')
+          if [ -z "$ABI" ]; then
+            echo "::error::targetAbi is missing from build.yaml"
+            exit 1
+          fi
+          echo "abi=$ABI" >> "$GITHUB_OUTPUT"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # Jellyfin 10.11 runs on net9.0; the plugin must target it exactly.
+          dotnet-version: '9.0.x'
+
+      - name: Build
+        run: |
+          dotnet build src/Jellyfin.Plugin.ReleaseHub/Jellyfin.Plugin.ReleaseHub.csproj \
+            -c Release \
+            -o artifacts \
+            -p:Version=${{ steps.version.outputs.version }} \
+            -p:AssemblyVersion=${{ steps.version.outputs.version }} \
+            -p:FileVersion=${{ steps.version.outputs.version }}
+
+      - name: Run tests
+        run: dotnet test -c Release --nologo
+
+      - name: Package
+        id: package
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ZIP="ReleaseHub_${VERSION}.zip"
+
+          # Jellyfin extracts the archive straight into plugins/<name>_<version>/, so the assembly has
+          # to sit at the archive root rather than inside a folder.
+          mkdir -p package
+          cp artifacts/Jellyfin.Plugin.ReleaseHub.dll package/
+          (cd package && zip -r "../$ZIP" .)
+
+          CHECKSUM=$(md5sum "$ZIP" | cut -d' ' -f1 | tr '[:lower:]' '[:upper:]')
+
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "checksum=$CHECKSUM" >> "$GITHUB_OUTPUT"
+          echo "Packaged $ZIP with checksum $CHECKSUM"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "${{ steps.package.outputs.zip }}" \
+            --title "ReleaseHub ${{ steps.version.outputs.version }}" \
+            --generate-notes \
+            || gh release upload "${{ steps.version.outputs.tag }}" \
+                 "${{ steps.package.outputs.zip }}" --clobber
+
+      - name: Update manifest.json
+        run: |
+          python3 scripts/update_manifest.py \
+            "${{ steps.version.outputs.version }}" \
+            "${{ steps.abi.outputs.abi }}" \
+            "${{ steps.package.outputs.checksum }}" \
+            "${{ steps.package.outputs.zip }}"
+
+      - name: Commit manifest
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet manifest.json; then
+            echo "manifest.json already lists this version; nothing to commit."
+            exit 0
+          fi
+
+          git add manifest.json
+          git commit -m "chore: publish ReleaseHub ${{ steps.version.outputs.version }} in the plugin manifest"
+          git push origin main

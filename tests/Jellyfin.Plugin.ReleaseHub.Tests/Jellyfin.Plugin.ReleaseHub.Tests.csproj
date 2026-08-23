@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <LangVersion>latest</LangVersion>
+    <!-- The plugin targets net9.0 because that is what Jellyfin 10.11 runs on, but a developer machine
+         may only have a newer shared runtime installed. Rolling forward lets the tests execute there;
+         it affects the test host only, never the shipped assembly. -->
+    <RollForward>LatestMajor</RollForward>
+    <!-- Test methods do not need XML documentation, and CA1707 fights the Given_When_Then naming
+         that makes a failing test readable in CI output. -->
+    <NoWarn>$(NoWarn);CA1707;CS1591;CA1861</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Jellyfin.Plugin.ReleaseHub\Jellyfin.Plugin.ReleaseHub.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Captured provider responses. Tests parse these instead of calling the live APIs: the suite
+         must pass offline, must not consume anyone's rate limit budget, and must fail when a mapper
+         breaks rather than when a network call flakes. -->
+    <None Update="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

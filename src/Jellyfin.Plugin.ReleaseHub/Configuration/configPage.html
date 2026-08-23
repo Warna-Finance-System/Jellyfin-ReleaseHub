@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ReleaseHub</title>
+  <style>
+    /* No hardcoded colours: Jellyfin themes restyle Jellyfin's own classes, so anything custom here
+       uses currentColor and neutral veils that read correctly on light and dark grounds alike. */
+    .rhStatusGrid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(13em, 1fr));
+      gap: 0.75em;
+      margin-bottom: 1em;
+    }
+    .rhStatusCard {
+      padding: 0.75em 0.9em;
+      border-radius: 0.35em;
+      background: rgba(127, 127, 127, 0.12);
+    }
+    .rhStatusLabel {
+      font-size: 0.78em;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      opacity: 0.7;
+    }
+    .rhStatusValue {
+      font-size: 1.05em;
+      font-weight: 500;
+      margin-top: 0.2em;
+      display: flex;
+      align-items: center;
+      gap: 0.4em;
+    }
+    .rhDot {
+      width: 0.6em;
+      height: 0.6em;
+      border-radius: 50%;
+      flex: 0 0 auto;
+      border: 0.1em solid currentColor;
+    }
+    .rhDot-on { background: currentColor; }
+    .rhDot-off { background: transparent; opacity: 0.45; }
+    .rhButtonRow {
+      display: flex;
+      gap: 0.6em;
+      flex-wrap: wrap;
+    }
+    .rhButtonRow .emby-button { flex: 0 0 auto; }
+    .rhPendingList { display: flex; flex-direction: column; border-radius: 0.35em; overflow: hidden; }
+    .rhPendingRow {
+      display: flex;
+      align-items: center;
+      gap: 1em;
+      padding: 0.7em 0.9em;
+      border-bottom: 0.06em solid rgba(127, 127, 127, 0.18);
+      flex-wrap: wrap;
+    }
+    .rhPendingRow:last-child { border-bottom: none; }
+    .rhPendingTitle { flex: 1 1 14em; min-width: 0; font-weight: 500; }
+    .rhPendingCandidate { flex: 1 1 16em; min-width: 0; font-size: 0.9em; opacity: 0.8; }
+    .rhEmptyNote { padding: 1.5em; text-align: center; opacity: 0.65; }
+  </style>
+</head>
+<body>
+<div id="releaseHubConfigPage" data-role="page" class="page type-interior pluginConfigurationPage fullWidthContent">
+  <div class="content-primary">
+
+    <div class="verticalSection">
+      <div class="sectionTitleContainer flex align-items-center">
+        <h2 class="sectionTitle">ReleaseHub</h2>
+      </div>
+      <p class="fieldDescription">
+        Unified TV series and anime release calendar. ReleaseHub only ever reads your libraries —
+        it never renames, moves, deletes or downloads media, and never edits Jellyfin metadata.
+      </p>
+      <a is="emby-linkbutton" href="#/configurationpage?name=releasehub-app"
+         class="raised button-submit block emby-button" style="margin-top:1em;">
+        <span>Open ReleaseHub</span>
+      </a>
+    </div>
+
+    <div id="releaseHubTabNotice" class="infoBanner hide" style="margin-top:1.5em;"></div>
+
+    <!-- ===================== Status & management ===================== -->
+    <div class="verticalSection">
+      <h2 class="sectionTitle">Status</h2>
+
+      <div id="rhStatusGrid" class="rhStatusGrid"></div>
+
+      <div class="rhButtonRow">
+        <button is="emby-button" type="button" id="rhSyncNow" class="raised button-submit emby-button">
+          <span>Synchronize now</span>
+        </button>
+        <button is="emby-button" type="button" id="rhRefreshStatus" class="raised emby-button">
+          <span>Refresh</span>
+        </button>
+      </div>
+      <div class="fieldDescription" id="rhSyncFeedback"></div>
+    </div>
+
+    <!-- ===================== Match confirmation queue ===================== -->
+    <div class="verticalSection" id="rhPendingSection">
+      <h2 class="sectionTitle">Matches awaiting confirmation</h2>
+      <p class="fieldDescription">
+        These library series could not be matched to a provider with enough confidence, so ReleaseHub
+        deliberately leaves them out of the calendar rather than risk showing the wrong show's episodes.
+        Confirm a match to include it. A confirmed match is never overwritten by an automatic one.
+      </p>
+      <div id="rhPendingList" class="paperList rhPendingList"></div>
+    </div>
+
+    <form class="releaseHubConfigForm">
+
+      <!-- ===================== General ===================== -->
+      <div class="verticalSection">
+        <h2 class="sectionTitle">General</h2>
+
+        <div class="selectContainer">
+          <label class="selectLabel" for="rhLanguage">Language</label>
+          <select is="emby-select" id="rhLanguage" class="emby-select-withcolor emby-select">
+            <option value="">Follow the Jellyfin client</option>
+            <option value="en-US">English</option>
+            <option value="fr-FR">Français</option>
+          </select>
+          <div class="fieldDescription">
+            Leave on "Follow the Jellyfin client" to use each user's own interface language.
+          </div>
+        </div>
+
+        <div class="selectContainer">
+          <label class="selectLabel" for="rhCalendarRange">Default calendar range</label>
+          <select is="emby-select" id="rhCalendarRange" class="emby-select-withcolor emby-select">
+            <option value="7">7 days</option>
+            <option value="14">14 days</option>
+            <option value="30">30 days</option>
+          </select>
+        </div>
+
+        <label class="checkboxContainer">
+          <input is="emby-checkbox" type="checkbox" id="rhEnableTvSeries" />
+          <span>Enable TV series</span>
+        </label>
+
+        <label class="checkboxContainer">
+          <input is="emby-checkbox" type="checkbox" id="rhEnableAnime" />
+          <span>Enable anime</span>
+        </label>
+      </div>
+
+      <!-- ===================== Providers ===================== -->
+      <div class="verticalSection">
+        <h2 class="sectionTitle">Providers</h2>
+
+        <fieldset class="verticalSection-extrabottompadding">
+          <legend class="sectionTitle sectionTitle-cards">TVMaze</legend>
+
+          <label class="checkboxContainer">
+            <input is="emby-checkbox" type="checkbox" id="rhTvMazeEnabled" />
+            <span>Enabled</span>
+          </label>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="rhTvMazeBaseUrl">Base URL</label>
+            <input is="emby-input" type="url" id="rhTvMazeBaseUrl" class="emby-input" />
+            <div class="fieldDescription">
+              Default: https://api.tvmaze.com — TVMaze needs no API key for public use. This field
+              exists only so the endpoint can be changed if TVMaze ever relocates it.
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="verticalSection-extrabottompadding">
+          <legend class="sectionTitle sectionTitle-cards">AnimeSchedule</legend>
+
+          <label class="checkboxContainer">
+            <input is="emby-checkbox" type="checkbox" id="rhAnimeScheduleEnabled" />
+            <span>Enabled</span>
+          </label>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="rhAnimeScheduleBaseUrl">Base URL</label>
+            <input is="emby-input" type="url" id="rhAnimeScheduleBaseUrl" class="emby-input" />
+            <div class="fieldDescription">Default: https://animeschedule.net/api/v3</div>
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="rhAnimeScheduleApiKey">API key</label>
+            <input is="emby-input" type="password" id="rhAnimeScheduleApiKey" class="emby-input"
+                   autocomplete="off" spellcheck="false" />
+            <div class="fieldDescription" id="rhApiKeyState"></div>
+            <div class="fieldDescription">
+              Stored server-side and never sent to a browser. Leave blank to keep the saved key.
+            </div>
+          </div>
+
+          <button is="emby-button" type="button" id="rhTestAnimeSchedule" class="raised block emby-button">
+            <span>Test connection</span>
+          </button>
+          <div class="fieldDescription" id="rhTestResult"></div>
+        </fieldset>
+      </div>
+
+      <!-- ===================== Synchronization ===================== -->
+      <div class="verticalSection">
+        <h2 class="sectionTitle">Synchronization</h2>
+
+        <div class="selectContainer">
+          <label class="selectLabel" for="rhRefreshInterval">Refresh interval</label>
+          <select is="emby-select" id="rhRefreshInterval" class="emby-select-withcolor emby-select">
+            <option value="1">Every hour</option>
+            <option value="3">Every 3 hours</option>
+            <option value="6">Every 6 hours</option>
+            <option value="12">Every 12 hours</option>
+            <option value="24">Every 24 hours</option>
+            <option value="0">Manual only</option>
+          </select>
+        </div>
+
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="rhSeriesCacheHours">Series metadata cache (hours)</label>
+          <input is="emby-input" type="number" id="rhSeriesCacheHours" class="emby-input" min="1" max="720" />
+        </div>
+
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="rhReleaseCacheHours">Release data cache (hours)</label>
+          <input is="emby-input" type="number" id="rhReleaseCacheHours" class="emby-input" min="1" max="168" />
+        </div>
+
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="rhMaxRequests">Maximum requests per synchronization</label>
+          <input is="emby-input" type="number" id="rhMaxRequests" class="emby-input" min="10" max="10000" />
+          <div class="fieldDescription">
+            A hard ceiling on outbound provider calls per run, on top of the per-provider rate limiter.
+          </div>
+        </div>
+      </div>
+
+      <!-- ===================== Images ===================== -->
+      <div class="verticalSection">
+        <h2 class="sectionTitle">Images</h2>
+
+        <label class="checkboxContainer">
+          <input is="emby-checkbox" type="checkbox" id="rhEnableImageCache" />
+          <span>Enable image caching</span>
+        </label>
+
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="rhImageCacheSize">Cache size limit (MB)</label>
+          <input is="emby-input" type="number" id="rhImageCacheSize" class="emby-input" min="16" max="4096" />
+        </div>
+
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="rhImageCacheDays">Cache expiration (days)</label>
+          <input is="emby-input" type="number" id="rhImageCacheDays" class="emby-input" min="1" max="365" />
+          <div class="fieldDescription">
+            Images already held by Jellyfin are reused directly; only provider images for items outside
+            your library are cached, and never written into your media folders.
+          </div>
+        </div>
+      </div>
+
+      <!-- ===================== Debug ===================== -->
+      <div class="verticalSection">
+        <h2 class="sectionTitle">Debug</h2>
+
+        <label class="checkboxContainer">
+          <input is="emby-checkbox" type="checkbox" id="rhEnableDebugLogging" />
+          <span>Enable debug logging</span>
+        </label>
+        <div class="fieldDescription">API keys are redacted from every log line regardless of this setting.</div>
+      </div>
+
+      <div class="verticalSection">
+        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+          <span>Save</span>
+        </button>
+      </div>
+    </form>
+
+    <div class="verticalSection">
+      <h2 class="sectionTitle">Attribution</h2>
+      <p class="fieldDescription">
+        TV series data provided by <a is="emby-linkbutton" class="button-link" target="_blank"
+        rel="noopener noreferrer" href="https://www.tvmaze.com/">TVMaze</a>, licensed under CC BY-SA.
+        Anime schedule data provided by <a is="emby-linkbutton" class="button-link" target="_blank"
+        rel="noopener noreferrer" href="https://animeschedule.net/">AnimeSchedule</a>.
+        ReleaseHub is not affiliated with or endorsed by Jellyfin, TVMaze, AnimeSchedule, IMDb, TMDb,
+        TVDB, AniDB or AniList.
+      </p>
+    </div>
+
+  </div>
+
+  <script type="text/javascript">
+    (function () {
+      var PLUGIN_ID = '8d9233a8-2ce9-4603-b5e2-e26f89f9408c';
+      var page;
+
+      function $(id) {
+        return page.querySelector('#' + id);
+      }
+
+      function load() {
+        Dashboard.showLoadingMsg();
+
+        ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
+          $('rhLanguage').value = config.Language || '';
+          $('rhCalendarRange').value = String(config.DefaultCalendarRangeDays || 7);
+          $('rhEnableTvSeries').checked = !!config.EnableTvSeries;
+          $('rhEnableAnime').checked = !!config.EnableAnime;
+
+          $('rhTvMazeEnabled').checked = !!config.TvMazeEnabled;
+          $('rhTvMazeBaseUrl').value = config.TvMazeBaseUrl || '';
+
+          $('rhAnimeScheduleEnabled').checked = !!config.AnimeScheduleEnabled;
+          $('rhAnimeScheduleBaseUrl').value = config.AnimeScheduleBaseUrl || '';
+          // The key itself is never returned by the API; only whether one is stored.
+          $('rhAnimeScheduleApiKey').value = '';
+
+          $('rhRefreshInterval').value = String(config.RefreshIntervalHours);
+          $('rhSeriesCacheHours').value = config.SeriesCacheHours;
+          $('rhReleaseCacheHours').value = config.ReleaseCacheHours;
+          $('rhMaxRequests').value = config.MaxRequestsPerSync;
+
+          $('rhEnableImageCache').checked = !!config.EnableImageCache;
+          $('rhImageCacheSize').value = config.ImageCacheSizeLimitMb;
+          $('rhImageCacheDays').value = config.ImageCacheExpirationDays;
+
+          $('rhEnableDebugLogging').checked = !!config.EnableDebugLogging;
+
+          Dashboard.hideLoadingMsg();
+        }, function () {
+          Dashboard.hideLoadingMsg();
+        });
+
+        loadStatus();
+      }
+
+      function statusCard(label, value, dotState) {
+        var card = document.createElement('div');
+        card.className = 'rhStatusCard';
+
+        var labelNode = document.createElement('div');
+        labelNode.className = 'rhStatusLabel';
+        labelNode.textContent = label;
+
+        var valueNode = document.createElement('div');
+        valueNode.className = 'rhStatusValue';
+
+        if (dotState !== undefined) {
+          var dot = document.createElement('span');
+          dot.className = 'rhDot ' + (dotState ? 'rhDot-on' : 'rhDot-off');
+          valueNode.appendChild(dot);
+        }
+
+        valueNode.appendChild(document.createTextNode(value));
+        card.appendChild(labelNode);
+        card.appendChild(valueNode);
+        return card;
+      }
+
+      function loadStatus() {
+        ApiClient.getJSON(ApiClient.getUrl('ReleaseHub/Status')).then(function (status) {
+          $('rhApiKeyState').textContent = status.AnimeScheduleApiKeyConfigured
+            ? 'A key is currently stored.'
+            : 'No key stored yet.';
+
+          var grid = $('rhStatusGrid');
+          grid.innerHTML = '';
+          grid.appendChild(statusCard('Version', status.Version));
+          grid.appendChild(statusCard(
+            'Last synchronization',
+            status.LastSyncUtc ? new Date(status.LastSyncUtc).toLocaleString() : 'Never',
+            !!status.LastSyncUtc));
+          grid.appendChild(statusCard(
+            'TVMaze',
+            status.TvMazeAvailable ? 'Active' : 'Disabled',
+            status.TvMazeAvailable));
+          grid.appendChild(statusCard(
+            'AnimeSchedule',
+            status.AnimeScheduleAvailable
+              ? 'Active'
+              : (status.AnimeScheduleApiKeyConfigured ? 'Disabled' : 'No API key'),
+            status.AnimeScheduleAvailable));
+          grid.appendChild(statusCard(
+            'User menu entry',
+            status.UserTabAvailable ? 'Available to all users' : 'Dashboard only',
+            status.UserTabAvailable));
+
+          var notice = $('releaseHubTabNotice');
+          if (status.UserTabAvailable) {
+            notice.classList.add('hide');
+          } else {
+            notice.classList.remove('hide');
+            notice.textContent =
+              'ReleaseHub is available here in the dashboard. To also give non-administrator users a '
+              + 'ReleaseHub entry in the main menu, install the "File Transformation" plugin and restart '
+              + 'Jellyfin. ReleaseHub works fully without it.';
+          }
+        }, function () { /* Status is advisory only; a failure must not block the settings page. */ });
+
+        loadPendingMatches();
+      }
+
+      function loadPendingMatches() {
+        var list = $('rhPendingList');
+        list.innerHTML = '';
+
+        ApiClient.getJSON(ApiClient.getUrl('ReleaseHub/Matches/Pending')).then(function (pending) {
+          if (!pending.length) {
+            var empty = document.createElement('div');
+            empty.className = 'rhEmptyNote';
+            empty.textContent = 'Nothing to confirm — every series was matched confidently.';
+            list.appendChild(empty);
+            return;
+          }
+
+          pending.forEach(function (entry) {
+            var candidate = entry.Candidates && entry.Candidates[0];
+            if (!candidate) {
+              return;
+            }
+
+            var row = document.createElement('div');
+            row.className = 'rhPendingRow';
+
+            var title = document.createElement('div');
+            title.className = 'rhPendingTitle';
+            title.textContent = entry.Title + (entry.Year ? ' (' + entry.Year + ')' : '');
+            row.appendChild(title);
+
+            var suggestion = document.createElement('div');
+            suggestion.className = 'rhPendingCandidate';
+            suggestion.textContent = '→ ' + candidate.Title
+              + (candidate.Year ? ' (' + candidate.Year + ')' : '')
+              + ' · ' + entry.Provider;
+            row.appendChild(suggestion);
+
+            var confirm = document.createElement('button');
+            confirm.setAttribute('is', 'emby-button');
+            confirm.type = 'button';
+            confirm.className = 'raised button-submit emby-button';
+            var confirmLabel = document.createElement('span');
+            confirmLabel.textContent = 'Confirm';
+            confirm.appendChild(confirmLabel);
+
+            confirm.addEventListener('click', function () {
+              confirm.disabled = true;
+              ApiClient.ajax({
+                type: 'POST',
+                url: ApiClient.getUrl('ReleaseHub/Matches/Confirm'),
+                data: JSON.stringify({
+                  JellyfinItemId: entry.JellyfinItemId,
+                  Provider: entry.Provider,
+                  ProviderId: candidate.ProviderId
+                }),
+                contentType: 'application/json'
+              }).then(function () {
+                row.remove();
+              }, function () {
+                confirm.disabled = false;
+              });
+            });
+
+            row.appendChild(confirm);
+            list.appendChild(row);
+          });
+        }, function () {
+          // Non-fatal: the queue is a convenience, not a prerequisite for configuring the plugin.
+        });
+      }
+
+      function synchronizeNow() {
+        var feedback = $('rhSyncFeedback');
+        feedback.textContent = 'Queuing synchronization…';
+
+        ApiClient.ajax({
+          type: 'POST',
+          url: ApiClient.getUrl('ReleaseHub/Sync')
+        }).then(function () {
+          feedback.textContent =
+            'Synchronization queued. Follow its progress in Dashboard > Scheduled Tasks, then refresh.';
+        }, function () {
+          feedback.textContent = 'Could not queue the synchronization task.';
+        });
+      }
+
+      function save(event) {
+        event.preventDefault();
+        Dashboard.showLoadingMsg();
+
+        ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
+          config.Language = $('rhLanguage').value;
+          config.DefaultCalendarRangeDays = parseInt($('rhCalendarRange').value, 10);
+          config.EnableTvSeries = $('rhEnableTvSeries').checked;
+          config.EnableAnime = $('rhEnableAnime').checked;
+
+          config.TvMazeEnabled = $('rhTvMazeEnabled').checked;
+          config.TvMazeBaseUrl = $('rhTvMazeBaseUrl').value.trim();
+
+          config.AnimeScheduleEnabled = $('rhAnimeScheduleEnabled').checked;
+          config.AnimeScheduleBaseUrl = $('rhAnimeScheduleBaseUrl').value.trim();
+
+          // An empty field means "keep what is stored" so that saving the page never wipes the key.
+          var typedKey = $('rhAnimeScheduleApiKey').value;
+          if (typedKey) {
+            config.AnimeScheduleApiKey = typedKey;
+          }
+
+          config.RefreshIntervalHours = parseInt($('rhRefreshInterval').value, 10);
+          config.SeriesCacheHours = parseInt($('rhSeriesCacheHours').value, 10);
+          config.ReleaseCacheHours = parseInt($('rhReleaseCacheHours').value, 10);
+          config.MaxRequestsPerSync = parseInt($('rhMaxRequests').value, 10);
+
+          config.EnableImageCache = $('rhEnableImageCache').checked;
+          config.ImageCacheSizeLimitMb = parseInt($('rhImageCacheSize').value, 10);
+          config.ImageCacheExpirationDays = parseInt($('rhImageCacheDays').value, 10);
+
+          config.EnableDebugLogging = $('rhEnableDebugLogging').checked;
+
+          ApiClient.updatePluginConfiguration(PLUGIN_ID, config).then(function (result) {
+            Dashboard.processPluginConfigurationUpdateResult(result);
+            $('rhAnimeScheduleApiKey').value = '';
+            loadStatus();
+          });
+        });
+
+        return false;
+      }
+
+      function testConnection() {
+        var result = $('rhTestResult');
+        result.textContent = 'Testing…';
+
+        ApiClient.ajax({
+          type: 'POST',
+          url: ApiClient.getUrl('ReleaseHub/Providers/AnimeSchedule/Test'),
+          dataType: 'json'
+        }).then(function (response) {
+          result.textContent = response.Success
+            ? 'Connection succeeded.'
+            : 'Connection failed: ' + response.Message;
+        }, function () {
+          result.textContent = 'Connection failed.';
+        });
+      }
+
+      // pageshow fires on every navigation back to this view, so bind the handlers once and
+      // only refresh the values on subsequent shows.
+      var bound = false;
+
+      document.querySelector('#releaseHubConfigPage')
+        .addEventListener('pageshow', function () {
+          page = this;
+
+          if (!bound) {
+            bound = true;
+            page.querySelector('.releaseHubConfigForm').addEventListener('submit', save);
+            page.querySelector('#rhTestAnimeSchedule').addEventListener('click', testConnection);
+            page.querySelector('#rhSyncNow').addEventListener('click', synchronizeNow);
+            page.querySelector('#rhRefreshStatus').addEventListener('click', loadStatus);
+          }
+
+          load();
+        });
+    })();
+  </script>
+</div>
+</body>
+</html>

@@ -1,0 +1,38 @@
+[
+  {
+    "id": 553946,
+    "name": "Chapter One: The Vanishing of Will Byers",
+    "season": 1,
+    "number": 1,
+    "type": "regular",
+    "airdate": "2016-07-15",
+    "airtime": "",
+    "airstamp": "2016-07-15T12:00:00+00:00",
+    "runtime": 49,
+    "summary": "<p>On his way home, young Will sees something terrifying.</p>"
+  },
+  {
+    "id": 553947,
+    "name": "Chapter Two: The Weirdo on Maple Street",
+    "season": 1,
+    "number": 2,
+    "type": "regular",
+    "airdate": "2016-07-15",
+    "airtime": "21:00",
+    "airstamp": "2016-07-15T21:00:00+02:00",
+    "runtime": 55,
+    "summary": "<p>Lucas, Mike and Dustin try to talk to the girl they found.</p>"
+  },
+  {
+    "id": 553999,
+    "name": "A Look Behind the Scenes",
+    "season": 1,
+    "number": 0,
+    "type": "insignificant_special",
+    "airdate": "2016-07-20",
+    "airtime": "20:30",
+    "airstamp": "2016-07-20T20:30:00+02:00",
+    "runtime": 12,
+    "summary": null
+  }
+]

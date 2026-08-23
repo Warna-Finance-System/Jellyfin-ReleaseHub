@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # Must match the framework Jellyfin 10.11 runs on.
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        # The plugin project treats warnings as errors, so this also enforces the analyzer rules.
+        run: dotnet build -c Release --no-restore --nologo
+
+      - name: Test
+        run: dotnet test -c Release --no-build --nologo --verbosity normal
+
+      - name: Validate manifest.json
+        run: |
+          # A malformed manifest silently breaks installation for everyone subscribed to the
+          # repository, and the failure only shows up inside Jellyfin, so check it here instead.
+          python3 - <<'PY'
+          import json, re, sys
+
+          with open("manifest.json", encoding="utf-8") as handle:
+              manifest = json.load(handle)
+
+          assert isinstance(manifest, list) and manifest, "manifest must be a non-empty array"
+          plugin = manifest[0]
+
+          for field in ("guid", "name", "owner", "category", "versions"):
+              assert field in plugin, f"missing required field: {field}"
+
+          assert re.fullmatch(
+              r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+              plugin["guid"],
+          ), "guid must be a lowercase UUID"
+
+          for version in plugin["versions"]:
+              for field in ("version", "targetAbi", "sourceUrl", "checksum", "timestamp"):
+                  assert field in version, f"version entry missing {field}"
+              assert re.fullmatch(r"\d+\.\d+\.\d+\.\d+", version["version"]), \
+                  f"{version['version']} must have four numeric parts"
+              assert re.fullmatch(r"[0-9A-F]{32}", version["checksum"]), \
+                  f"checksum for {version['version']} must be an uppercase MD5 digest"
+
+          print(f"manifest.json is valid ({len(plugin['versions'])} version(s))")
+          PY

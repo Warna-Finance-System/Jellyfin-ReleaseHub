@@ -1,0 +1,12 @@
+[
+  {
+    "guid": "8d9233a8-2ce9-4603-b5e2-e26f89f9408c",
+    "name": "Jellyfin ReleaseHub",
+    "overview": "Unified TV series and anime release calendar for Jellyfin.",
+    "description": "ReleaseHub adds a unified release calendar, tracking and discovery experience for TV series and anime directly inside Jellyfin. It reads your existing libraries, resolves each series against TVMaze or AnimeSchedule using the provider IDs Jellyfin already holds, and shows what airs next. It never modifies, renames, moves or downloads any media, and requires no Sonarr, Radarr or other external service.",
+    "owner": "Warna",
+    "category": "General",
+    "imageUrl": "https://raw.githubusercontent.com/Warna-Finance-System/Jellyfin-ReleaseHub/main/media/logo.png",
+    "versions": []
+  }
+]

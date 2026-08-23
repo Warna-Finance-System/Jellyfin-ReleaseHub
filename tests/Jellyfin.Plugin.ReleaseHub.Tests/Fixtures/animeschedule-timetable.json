@@ -1,0 +1,47 @@
+[
+  {
+    "title": "One Piece",
+    "route": "one-piece",
+    "romaji": "One Piece",
+    "english": "One Piece",
+    "native": "ワンピース",
+    "status": "Ongoing",
+    "episodeDate": "2026-08-22T19:30:00Z",
+    "episodeNumber": 1150,
+    "episodes": 0,
+    "lengthMin": 24,
+    "donghua": false,
+    "airType": "sub",
+    "imageVersionRoute": "anime/jpg/default/one-piece-abc123",
+    "airingStatus": "unaired",
+    "streams": [
+      { "platform": "crunchyroll", "url": "crunchyroll.com/watch/one-piece", "name": "Crunchyroll" }
+    ]
+  },
+  {
+    "title": "Delayed Show",
+    "route": "delayed-show",
+    "romaji": "Delayed Show",
+    "english": "Delayed Show",
+    "native": "遅延",
+    "status": "Delayed",
+    "episodeDate": "2026-08-23T14:00:00Z",
+    "episodeNumber": 12,
+    "subtractedEpisodeNumber": 7,
+    "airType": "dub",
+    "imageVersionRoute": "anime/jpg/default/delayed-show-xyz789",
+    "airingStatus": "delayed-air",
+    "delayedText": "Delayed one week",
+    "streams": []
+  },
+  {
+    "title": "Never Scheduled",
+    "route": "never-scheduled",
+    "english": "Never Scheduled",
+    "status": "Upcoming",
+    "episodeDate": "0001-01-01T00:00:00Z",
+    "episodeNumber": 1,
+    "airType": "raw",
+    "airingStatus": "unaired"
+  }
+]
