@@ -1,7 +1,7 @@
 ---
 name: "Jellyfin ReleaseHub"
 guid: "8d9233a8-2ce9-4603-b5e2-e26f89f9408c"
-version: "1.0.0.0"
+version: "1.0.0.1"
 targetAbi: "10.11.11.0"
 framework: "net9.0"
 # Shown as the plugin's developer in Jellyfin's plugin catalogue and details page.
@@ -17,15 +17,8 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.ReleaseHub.dll"
 changelog: |
-  First release.
-
-  - Calendar, Upcoming, Following and Discover, with All / Anime / TV series / Films filters
-  - TVMaze, AnimeSchedule and TMDb, each swappable behind a common provider contract
-  - Films and sagas: the next entry of a collection already in the library
-  - One-year horizon, at no extra request cost: each provider declares how far ahead it is worth asking
-  - Incremental "load more" in Upcoming, stopping honestly at the horizon rather than on empty pages
-  - French and English throughout, with no user-facing string hardcoded in the interface
-  - Strictly read-only: never renames, moves, deletes or downloads media, and never edits metadata
-  - Rate limiting, request de-duplication, 429 and Retry-After handling, and an SQLite cache
-  - Optional user-facing entry point through the File Transformation plugin
-  - Web interface page, including a toggle for the Abyss theme's spotlight carousel
+  - TVMaze gains a *Test connection* button in the settings page, alongside AnimeSchedule and TMDb.
+    TVMaze needs no key, so it checks reachability: a typo in the base URL, or blocked outbound
+    access, is now visible instead of showing up later as a silently empty calendar.
+  - The local build script stamps the assembly with the version from build.yaml, so an installed
+    plugin folder and the assembly inside it can no longer disagree.

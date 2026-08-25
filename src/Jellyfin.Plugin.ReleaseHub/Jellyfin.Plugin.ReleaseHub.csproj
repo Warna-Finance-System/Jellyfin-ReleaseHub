@@ -4,9 +4,11 @@
     <!-- Jellyfin 10.11.x runs on net9.0 (verified in jellyfin.runtimeconfig.json). Do not raise this:
          a plugin built for a newer TFM will not load into the 10.11.11 server. -->
     <TargetFramework>net9.0</TargetFramework>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
-    <Version>1.0.0.0</Version>
+    <!-- Fallback only. build.ps1 and the release workflow both pass the version from build.yaml,
+         which is the single place it is declared; these values apply to a bare `dotnet build`. -->
+    <AssemblyVersion>1.0.0.1</AssemblyVersion>
+    <FileVersion>1.0.0.1</FileVersion>
+    <Version>1.0.0.1</Version>
     <RootNamespace>Jellyfin.Plugin.ReleaseHub</RootNamespace>
     <AssemblyName>Jellyfin.Plugin.ReleaseHub</AssemblyName>
     <Nullable>enable</Nullable>

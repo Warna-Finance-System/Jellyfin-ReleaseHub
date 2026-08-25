@@ -206,6 +206,15 @@
               exists only so the endpoint can be changed if TVMaze ever relocates it.
             </div>
           </div>
+
+          <button is="emby-button" type="button" id="rhTestTvMaze" class="raised block emby-button">
+            <span>Test connection</span>
+          </button>
+          <div class="fieldDescription">
+            Checks that TVMaze answers at the address above. There is no key to verify here, so this
+            tests reachability — a typo in the base URL, or an outbound connection being blocked.
+          </div>
+          <div class="fieldDescription" id="rhTvMazeTestResult"></div>
         </fieldset>
 
         <fieldset class="verticalSection-extrabottompadding">
@@ -689,7 +698,8 @@
       }
 
       // Send whatever is currently typed so a credential can be verified *before* it replaces a
-      // working one. An empty field means "test what is already saved on the server".
+      // working one. An empty field means "test what is already saved on the server", and a provider
+      // with no credential at all — TVMaze — passes no field and simply tests reachability.
       function testConnection(provider, keyInputId, resultId) {
         var result = $(resultId);
         result.textContent = 'Testing…';
@@ -697,7 +707,7 @@
         ApiClient.ajax({
           type: 'POST',
           url: ApiClient.getUrl('ReleaseHub/Providers/' + provider + '/Test'),
-          data: JSON.stringify({ ApiKey: $(keyInputId).value.trim() }),
+          data: JSON.stringify({ ApiKey: keyInputId ? $(keyInputId).value.trim() : '' }),
           contentType: 'application/json',
           dataType: 'json'
         }).then(function (response) {
@@ -720,6 +730,9 @@
           if (!bound) {
             bound = true;
             page.querySelector('.releaseHubConfigForm').addEventListener('submit', save);
+            page.querySelector('#rhTestTvMaze').addEventListener('click', function () {
+              testConnection('TvMaze', null, 'rhTvMazeTestResult');
+            });
             page.querySelector('#rhTestAnimeSchedule').addEventListener('click', function () {
               testConnection('AnimeSchedule', 'rhAnimeScheduleApiKey', 'rhTestResult');
             });

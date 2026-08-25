@@ -103,7 +103,13 @@ function Start-Jellyfin {
 Write-Host "Building $($meta.name) $($meta.version) (targetAbi $($meta.targetAbi))" -ForegroundColor Cyan
 
 $outDir = Join-Path $repoRoot 'artifacts'
-dotnet build $project -c Release -o $outDir --nologo
+# Stamped from build.yaml rather than from the csproj: the install folder is named after that
+# version, and a folder claiming one version around an assembly claiming another is the kind of
+# mismatch that is only noticed once Jellyfin refuses to update the plugin.
+dotnet build $project -c Release -o $outDir --nologo `
+    -p:Version=$($meta.version) `
+    -p:AssemblyVersion=$($meta.version) `
+    -p:FileVersion=$($meta.version)
 if ($LASTEXITCODE -ne 0) {
     throw "Build failed with exit code $LASTEXITCODE"
 }
