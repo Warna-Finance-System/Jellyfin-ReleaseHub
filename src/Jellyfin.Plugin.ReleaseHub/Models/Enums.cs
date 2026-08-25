@@ -12,7 +12,10 @@ public enum ReleaseProviderKind
     TvMaze = 1,
 
     /// <summary>AnimeSchedule, used for anime broadcast schedules.</summary>
-    AnimeSchedule = 2
+    AnimeSchedule = 2,
+
+    /// <summary>TMDb, used for films and their collections.</summary>
+    Tmdb = 3
 }
 
 /// <summary>
@@ -30,7 +33,10 @@ public enum ReleaseKind
     Season = 2,
 
     /// <summary>A special or out-of-band episode.</summary>
-    Special = 3
+    Special = 3,
+
+    /// <summary>A feature film. Has no season or episode of its own.</summary>
+    Movie = 4
 }
 
 /// <summary>

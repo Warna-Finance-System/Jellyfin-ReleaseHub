@@ -4,52 +4,47 @@
   "Upcoming": "À venir",
   "Following": "Suivis",
   "Discover": "Découvrir",
-
   "All": "Tout",
   "Anime": "Animés",
+  "Movies": "Films",
+  "ProviderTmdb": "TMDb",
+  "Saga": "Saga",
+  "NoDateYet": "Date non annoncée",
   "TvSeries": "Séries",
-
+  "Clear": "Effacer",
   "Search": "Rechercher",
   "SearchPlaceholder": "Rechercher une série ou un animé…",
   "SearchHint": "Cherchez sur TVMaze et AnimeSchedule ce que vous voulez suivre.",
   "NoResults": "Aucun résultat",
-
   "Today": "Aujourd’hui",
   "Tomorrow": "Demain",
   "ThisWeek": "Cette semaine",
   "Later": "Plus tard",
-
   "Follow": "Suivre",
   "Unfollow": "Ne plus suivre",
   "Followed": "Suivi",
   "InLibrary": "Dans la bibliothèque",
-
   "NextEpisode": "Prochain épisode",
   "NextSeason": "Prochaine saison",
   "NoReleases": "Aucune diffusion prévue",
   "NoReleasesHint": "Rien n’est diffusé sur cette période. Élargissez la plage ou suivez d’autres séries.",
   "NoFollowedItems": "Vous ne suivez encore rien",
   "NoFollowedItemsHint": "Utilisez Découvrir pour suivre une série ou un animé absent de votre bibliothèque.",
-
   "ReleaseDate": "Date de diffusion",
   "UnknownDate": "Date inconnue",
   "ApproximateDate": "Date approximative",
   "Announced": "Annoncée",
   "NoDateAnnounced": "Aucune date annoncée",
-
   "Season": "Saison",
   "Episode": "Épisode",
   "SeasonEpisodeShort": "S{0}E{1}",
   "EpisodeShort": "Épisode {0}",
-
   "Sub": "VOSTFR",
   "Dub": "VF",
   "Raw": "VO",
-
   "Range7": "7 jours",
   "Range14": "14 jours",
   "Range30": "30 jours",
-
   "LayoutList": "Liste",
   "LayoutWeek": "Semaine",
   "LayoutPoster": "Affiches",
@@ -57,18 +52,16 @@
   "ReleasesOn": "Sorties du {0}",
   "PreviousWeek": "Semaine précédente",
   "NextWeek": "Semaine suivante",
-
   "LastUpdated": "Mis à jour {0}",
   "Never": "jamais",
+  "ProviderIssue": "Données possiblement incomplètes — {0}",
   "ProviderUnavailable": "{0} est indisponible — affichage des données en cache",
   "Loading": "Chargement…",
   "ErrorTitle": "Une erreur est survenue",
   "Retry": "Réessayer",
   "Refresh": "Actualiser",
-
   "Settings": "Paramètres",
   "OpenReleaseHub": "Ouvrir ReleaseHub",
-
   "StatusRunning": "En cours",
   "StatusEnded": "Terminée",
   "StatusToBeDetermined": "À déterminer",
@@ -77,7 +70,6 @@
   "StatusOngoing": "En cours",
   "StatusFinished": "Terminé",
   "StatusDelayed": "Reporté",
-
   "GenreAction": "Action",
   "GenreAdventure": "Aventure",
   "GenreAnime": "Animé",
@@ -115,10 +107,9 @@
   "GenreMartialArts": "Arts martiaux",
   "GenreSchool": "École",
   "GenreMagic": "Magie",
-
   "ProviderTvMaze": "TVMaze",
   "ProviderAnimeSchedule": "AnimeSchedule",
-  "SourceLabel": "Source",
+  "SourceLabel": "Sources :",
   "Network": "Chaîne",
   "StreamingOn": "Diffusé sur",
   "Genres": "Genres",
@@ -128,7 +119,9 @@
   "Status": "Statut",
   "Details": "Détails",
   "Close": "Fermer",
-
   "AnimeDisabled": "La prise en charge des animés est désactivée ou non configurée",
-  "AnimeDisabledHint": "Un administrateur peut activer AnimeSchedule et renseigner une clé API dans les paramètres du plugin."
+  "AnimeDisabledHint": "Un administrateur peut activer AnimeSchedule et renseigner une clé API dans les paramètres du plugin.",
+  "LoadMore": "Voir plus",
+  "ShowingNextDays": "Affichage des {0} prochains jours",
+  "HorizonReached": "C’est tout ce que ReleaseHub a récupéré : {0} jours à l’avance."
 }

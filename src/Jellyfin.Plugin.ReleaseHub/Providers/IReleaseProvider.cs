@@ -75,6 +75,20 @@ public interface IReleaseProvider
     bool SupportsBulkSchedule { get; }
 
     /// <summary>
+    /// Gets how far ahead this provider is worth asking, or <see langword="null"/> when the window
+    /// costs it nothing.
+    /// </summary>
+    /// <remarks>
+    /// The synchronization horizon is chosen for what users want to see, not for what each provider
+    /// charges to see it. A provider whose cost is independent of the window — one request per series,
+    /// or an episode list returned whole — reports <see langword="null"/> and is asked for the entire
+    /// horizon. A provider billed per week of window reports the point past which the extra requests
+    /// buy nothing, so that widening the horizon for everyone else does not quietly multiply its
+    /// traffic against weeks it has no data for yet.
+    /// </remarks>
+    TimeSpan? MaxLookAhead { get; }
+
+    /// <summary>
     /// Fetches every release the provider knows about inside a window.
     /// </summary>
     /// <param name="fromUtc">Inclusive start of the window.</param>
@@ -106,7 +120,17 @@ public interface IReleaseProvider
     /// <summary>
     /// Verifies that the provider is reachable and, where applicable, that the credential works.
     /// </summary>
+    /// <param name="credentialOverride">
+    /// A credential to test instead of the stored one, or <see langword="null"/> to use what is saved.
+    /// </param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The outcome, suitable for display in the settings page.</returns>
-    Task<ProviderTestResult> TestConnectionAsync(CancellationToken cancellationToken);
+    /// <remarks>
+    /// The override exists so an administrator can check a key before committing it: testing only the
+    /// saved value forces them to save a possibly wrong key first, which is how a working configuration
+    /// gets overwritten by a typo. Providers without a credential ignore it.
+    /// </remarks>
+    Task<ProviderTestResult> TestConnectionAsync(
+        string? credentialOverride,
+        CancellationToken cancellationToken);
 }

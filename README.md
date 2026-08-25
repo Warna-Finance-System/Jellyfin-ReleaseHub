@@ -36,8 +36,9 @@ arrive.
 - **Calendrier** sur 7, 14 ou 30 jours, groupé par jour, avec affiche, saison, épisode, heure et plateforme.
 - **À venir** — vue compacte répartie en *Aujourd'hui*, *Demain*, *Cette semaine*, *Plus tard*.
 - **Suivis** — suivez des séries et des animés **absents de votre bibliothèque**, sans rien télécharger.
-- **Découvrir** — recherche sur TVMaze et AnimeSchedule, avec badges *Dans la bibliothèque* et *Suivi*.
-- Filtres **Tout / Animés / Séries** sur toutes les vues.
+- **Films** — les sorties à venir d'une saga dont vous possédez déjà un film, via TMDb.
+- **Découvrir** — recherche sur TVMaze, AnimeSchedule et TMDb, avec badges *Dans la bibliothèque* et *Suivi*.
+- Filtres **Tout / Animés / Séries / Films** sur toutes les vues.
 - **Français et anglais**, avec détection automatique de la langue du client Jellyfin.
 - **Compatible thèmes** — réutilise les classes CSS natives de Jellyfin ; fonctionne avec le thème par
   défaut, Abyss et les autres, et continue de fonctionner si vous changez de thème.
@@ -64,6 +65,7 @@ arrive.
 | **Framework** | .NET 9.0 — fourni par Jellyfin, rien à installer |
 | **Clé API TVMaze** | ❌ Aucune |
 | **Clé API AnimeSchedule** | ✅ Requise uniquement pour la partie animés |
+| **Jeton TMDb** | ✅ Requis uniquement pour la partie films |
 | **File Transformation** | ⚠️ Optionnel — voir ci-dessous |
 
 ### À propos de File Transformation
@@ -133,7 +135,29 @@ son point d'entrée.
 **Obtenir une clé :** créez un compte sur [animeschedule.net](https://animeschedule.net/), puis une
 *Application* dans l'onglet **API** des paramètres de votre compte.
 
-Le bouton **Test connection** vérifie la clé sans jamais l'afficher.
+Le bouton **Test connection** valide ce qui est actuellement dans le champ — une clé peut donc
+être vérifiée avant d'être enregistrée. Un bouton afficher/masquer permet de la relire et de la
+copier.
+
+### TMDb (films)
+| Réglage | Défaut |
+|---|---|
+| Activé | ❌ |
+| Suivre les collections de films | ✅ |
+| URL de base | `https://api.themoviedb.org/3` |
+| URL de base des images | `https://image.tmdb.org/t/p/w500` |
+| Jeton | _(vide)_ |
+
+**Obtenir un jeton :** compte sur [themoviedb.org](https://www.themoviedb.org/) → *Paramètres* → *API* →
+copiez l'**API Read Access Token**. C'est le long jeton v4, pas la clé v3 plus courte.
+
+*Suivre les collections* est ce qui fait remonter le prochain film d'une saga dont vous possédez déjà
+un épisode. C'est le seul endroit où ReleaseHub regarde au-delà des items exacts de votre
+bibliothèque, d'où l'option séparée.
+
+Deux particularités des films, assumées dans l'affichage : TMDb donne une **date sans horaire** (aucune
+heure n'est donc inventée), et cette date n'est marquée *confirmée* que lorsque le film est terminé —
+sinon elle est signalée comme approximative. Un film annoncé sans date reste affiché, marqué comme tel.
 
 ### Synchronisation
 | Réglage | Défaut | Valeurs |
@@ -148,15 +172,22 @@ Deux tâches apparaissent dans **Tableau de bord → Tâches planifiées** :
 
 ## Gestion de la clé API
 
-La clé AnimeSchedule est traitée comme un secret :
+La clé AnimeSchedule est stockée côté serveur dans
+`plugins/configurations/Jellyfin.Plugin.ReleaseHub.xml`, et la frontière qui compte est celle entre un
+administrateur et un utilisateur ordinaire :
 
-- Stockée côté serveur dans `plugins/configurations/Jellyfin.Plugin.ReleaseHub.xml`.
-- **Jamais renvoyée par l'API** — le point d'entrée `/ReleaseHub/Status` n'expose qu'un booléen
-  `AnimeScheduleApiKeyConfigured`.
-- **Jamais journalisée** — les messages d'erreur ne mentionnent que le code HTTP.
-- **Jamais envoyée au navigateur** — toutes les requêtes partent du backend.
-- Un champ vide dans la page de configuration signifie « conserver la clé existante » : enregistrer les
-  paramètres ne peut pas l'effacer par accident.
+- **L'API de ReleaseHub ne l'expose jamais.** `/ReleaseHub/Status` est accessible à tout utilisateur
+  connecté et ne renvoie qu'un booléen `AnimeScheduleApiKeyConfigured`.
+- **Aucun appel provider ne part du navigateur.** Toutes les requêtes vers AnimeSchedule sont émises
+  par le serveur ; la clé ne transite jamais vers un client non-administrateur.
+- **Elle n'est jamais journalisée.** Les messages d'erreur ne rapportent que le code HTTP.
+- **La page de configuration l'affiche** à l'administrateur, avec un bouton afficher/masquer pour
+  pouvoir la relire et la copier. Ce n'est pas un affaiblissement : `GET /Plugins/{id}/Configuration`,
+  l'endpoint de Jellyfin que cette page appelle, est déjà réservé aux administrateurs et renvoie la
+  configuration complète, clé comprise. La masquer dans le champ n'aurait rien caché.
+- **Vider le champ et enregistrer supprime la clé** — c'est une action délibérée, pas un accident.
+- Le bouton *Test connection* valide ce que contient le champ, donc une clé peut être vérifiée
+  **avant** de remplacer celle qui fonctionne.
 - Le fichier de configuration est listé dans `.gitignore`.
 
 ## Limites de débit
@@ -165,6 +196,7 @@ La clé AnimeSchedule est traitée comme un secret :
 |---|---|---|
 | TVMaze | « au moins 20 requêtes / 10 s » | Se limite à **12 / 10 s** |
 | AnimeSchedule | 120 requêtes / min (par IP **et** par application) | Se limite à **90 / min** |
+| TMDb | Plus de plafond publié (remplacé par un lissage côté serveur) | Se limite à **20 / 10 s** |
 
 En plus de ces fenêtres glissantes :
 
@@ -209,6 +241,8 @@ Aucune chaîne visible n'est codée en dur : tout passe par
 | Calendrier vide | Aucune synchronisation n'a encore eu lieu → *Synchronize now* dans la configuration |
 | Une série de ma bibliothèque n'apparaît jamais | Regardez **Matches awaiting confirmation** : la correspondance était trop incertaine pour être utilisée automatiquement |
 | Aucun animé | AnimeSchedule désactivé ou sans clé API |
+| Aucun film | TMDb désactivé ou sans jeton |
+| Un film de ma bibliothèque n'a pas de suite affichée | La saga n'a pas d'entrée non sortie chez TMDb, ou *Suivre les collections* est décoché |
 | Pas d'entrée ReleaseHub dans le menu principal | File Transformation absent — ReleaseHub reste accessible depuis le tableau de bord |
 | Heure absente sur un épisode | Le fournisseur n'en a pas donné. ReleaseHub n'invente pas d'heure |
 
@@ -232,8 +266,12 @@ télémétrie ne quitte votre serveur. Il n'existe aucun service ReleaseHub dist
 - Données de diffusion animés fournies par **[AnimeSchedule.net](https://animeschedule.net/)**. Leurs
   conditions imposent un crédit visible (présent dans l'interface), interdisent l'usage commercial sans
   autorisation et interdisent l'utilisation des données pour entraîner des modèles d'IA.
+- Données films fournies par **[TMDb](https://www.themoviedb.org/)**. Leurs conditions imposent la
+  mention ci-dessous ainsi que l'affichage de leur logo ou de leur nom là où les données sont montrées.
 
-> ReleaseHub n'est **affilié à, ni approuvé par** Jellyfin, TVMaze, AnimeSchedule, IMDb, TMDb, TVDB,
+> Ce produit utilise l'API de TMDb mais n'est **ni approuvé ni certifié** par TMDb.
+>
+> ReleaseHub n'est **affilié à, ni approuvé par** Jellyfin, TVMaze, AnimeSchedule, TMDb, IMDb, TVDB,
 > AniDB, AniList ou tout autre fournisseur.
 
 ## Développement
@@ -271,7 +309,7 @@ src/Jellyfin.Plugin.ReleaseHub/
 ├── Integration/               Hook File Transformation (réflexion, optionnel)
 ├── Localization/              fr-FR.json, en-US.json
 ├── Models/                    Modèle normalisé, commun aux fournisseurs
-├── Providers/                 IReleaseProvider + TvMaze/ + AnimeSchedule/
+├── Providers/                 IReleaseProvider + TvMaze/ + AnimeSchedule/ + Tmdb/
 ├── ScheduledTasks/            Synchronisation, vidage du cache
 ├── Services/                  Cache, résolution, limiteur de débit, orchestration
 └── Web/                       app.html, app.js, boot.js, releasehub.css

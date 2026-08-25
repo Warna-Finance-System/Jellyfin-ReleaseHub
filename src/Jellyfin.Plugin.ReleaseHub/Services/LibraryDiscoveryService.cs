@@ -5,6 +5,7 @@ using System.Linq;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.ReleaseHub.Models;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
@@ -68,9 +69,15 @@ public sealed class LibraryDiscoveryService
     /// </remarks>
     public IReadOnlyList<SeriesIdentity> GetSeries(bool onlyActive)
     {
+        // Films join series here because a film's sequel is a release the user cares about in exactly
+        // the same way an episode is. They are told apart by item type, never guessed at.
+        var wantsMovies = Plugin.Config.EnableMovies;
+
         var query = new InternalItemsQuery
         {
-            IncludeItemTypes = [BaseItemKind.Series],
+            IncludeItemTypes = wantsMovies
+                ? [BaseItemKind.Series, BaseItemKind.Movie]
+                : [BaseItemKind.Series],
             Recursive = true,
 
             // Virtual and missing entries are placeholders Jellyfin creates for absent episodes; they
@@ -83,17 +90,21 @@ public sealed class LibraryDiscoveryService
 
         foreach (var item in items)
         {
-            if (item is not Series series)
+            if (item is Series series)
             {
+                if (onlyActive && series.Status == MediaBrowser.Model.Entities.SeriesStatus.Ended)
+                {
+                    continue;
+                }
+
+                results.Add(ToIdentity(series));
                 continue;
             }
 
-            if (onlyActive && series.Status == MediaBrowser.Model.Entities.SeriesStatus.Ended)
+            if (item is Movie movie)
             {
-                continue;
+                results.Add(ToIdentity(movie));
             }
-
-            results.Add(ToIdentity(series));
         }
 
         _logger.LogDebug(
@@ -191,6 +202,40 @@ public sealed class LibraryDiscoveryService
             Year = series.ProductionYear ?? series.PremiereDate?.Year,
             ProviderIds = providerIds,
             IsAnime = LooksLikeAnime(providerIds, series.Genres, series.Tags)
+        };
+    }
+
+    /// <summary>
+    /// Converts a Jellyfin film into a provider-agnostic identity.
+    /// </summary>
+    /// <param name="movie">The Jellyfin film.</param>
+    /// <returns>The identity.</returns>
+    /// <remarks>
+    /// A film is never filtered by "still running": what makes it interesting is the saga it belongs
+    /// to, and a saga can gain an entry long after its last film shipped.
+    /// </remarks>
+    internal static SeriesIdentity ToIdentity(Movie movie)
+    {
+        ArgumentNullException.ThrowIfNull(movie);
+
+        var providerIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in movie.ProviderIds)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                providerIds[key] = value;
+            }
+        }
+
+        return new SeriesIdentity
+        {
+            JellyfinItemId = movie.Id,
+            Title = movie.Name ?? string.Empty,
+            OriginalTitle = movie.OriginalTitle,
+            Year = movie.ProductionYear ?? movie.PremiereDate?.Year,
+            ProviderIds = providerIds,
+            IsMovie = true,
+            IsAnime = false
         };
     }
 

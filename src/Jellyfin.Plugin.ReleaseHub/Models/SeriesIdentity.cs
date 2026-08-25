@@ -61,6 +61,16 @@ public sealed class SeriesIdentity
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Gets or sets a value indicating whether this library item is a film rather than a series.
+    /// </summary>
+    /// <remarks>
+    /// Decides which providers can possibly answer for it: a film is only ever TMDb's business, and a
+    /// series is never TMDb's. Kept as a flag on the identity rather than inferred later, because the
+    /// answer comes from Jellyfin's own item type and is not a guess.
+    /// </remarks>
+    public bool IsMovie { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether ReleaseHub believes this is anime.
     /// </summary>
     /// <remarks>

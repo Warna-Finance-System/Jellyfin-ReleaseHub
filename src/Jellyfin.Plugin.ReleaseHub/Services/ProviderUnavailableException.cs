@@ -38,4 +38,15 @@ public sealed class ProviderUnavailableException : Exception
     /// Gets the provider that failed.
     /// </summary>
     public string ProviderName { get; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the provider rejected the credential.
+    /// </summary>
+    /// <remarks>
+    /// Distinguished from a transient outage because the two deserve opposite handling: a timeout is
+    /// worth retrying on the next series, whereas a rejected key will fail identically every time.
+    /// Repeating it once per series would spend the request budget on certain failures and hammer an
+    /// endpoint that has already said no.
+    /// </remarks>
+    public bool IsAuthenticationFailure { get; set; }
 }

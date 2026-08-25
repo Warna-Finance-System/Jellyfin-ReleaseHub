@@ -4,52 +4,47 @@
   "Upcoming": "Upcoming",
   "Following": "Following",
   "Discover": "Discover",
-
   "All": "All",
   "Anime": "Anime",
+  "Movies": "Movies",
+  "ProviderTmdb": "TMDb",
+  "Saga": "Saga",
+  "NoDateYet": "Date not announced",
   "TvSeries": "TV Series",
-
+  "Clear": "Clear",
   "Search": "Search",
   "SearchPlaceholder": "Search for a series or anime…",
   "SearchHint": "Search TVMaze and AnimeSchedule for something to follow.",
   "NoResults": "No results",
-
   "Today": "Today",
   "Tomorrow": "Tomorrow",
   "ThisWeek": "This week",
   "Later": "Later",
-
   "Follow": "Follow",
   "Unfollow": "Unfollow",
   "Followed": "Following",
   "InLibrary": "In Library",
-
   "NextEpisode": "Next episode",
   "NextSeason": "Next season",
   "NoReleases": "No releases scheduled",
   "NoReleasesHint": "Nothing airs in this range. Try a wider range or follow more series.",
   "NoFollowedItems": "You are not following anything yet",
   "NoFollowedItemsHint": "Use Discover to follow a series or anime that is not in your library.",
-
   "ReleaseDate": "Release date",
   "UnknownDate": "Unknown date",
   "ApproximateDate": "Approximate date",
   "Announced": "Announced",
   "NoDateAnnounced": "No date announced",
-
   "Season": "Season",
   "Episode": "Episode",
   "SeasonEpisodeShort": "S{0}E{1}",
   "EpisodeShort": "Episode {0}",
-
   "Sub": "SUB",
   "Dub": "DUB",
   "Raw": "RAW",
-
   "Range7": "7 days",
   "Range14": "14 days",
   "Range30": "30 days",
-
   "LayoutList": "List",
   "LayoutWeek": "Week",
   "LayoutPoster": "Posters",
@@ -57,18 +52,16 @@
   "ReleasesOn": "Releases on {0}",
   "PreviousWeek": "Previous week",
   "NextWeek": "Next week",
-
   "LastUpdated": "Last updated {0}",
   "Never": "never",
+  "ProviderIssue": "Some data may be missing — {0}",
   "ProviderUnavailable": "{0} is unavailable — showing cached data",
   "Loading": "Loading…",
   "ErrorTitle": "Something went wrong",
   "Retry": "Retry",
   "Refresh": "Refresh",
-
   "Settings": "Settings",
   "OpenReleaseHub": "Open ReleaseHub",
-
   "StatusRunning": "Running",
   "StatusEnded": "Ended",
   "StatusToBeDetermined": "To be determined",
@@ -77,7 +70,6 @@
   "StatusOngoing": "Ongoing",
   "StatusFinished": "Finished",
   "StatusDelayed": "Delayed",
-
   "GenreAction": "Action",
   "GenreAdventure": "Adventure",
   "GenreAnime": "Anime",
@@ -115,10 +107,9 @@
   "GenreMartialArts": "Martial arts",
   "GenreSchool": "School",
   "GenreMagic": "Magic",
-
   "ProviderTvMaze": "TVMaze",
   "ProviderAnimeSchedule": "AnimeSchedule",
-  "SourceLabel": "Source",
+  "SourceLabel": "Sources:",
   "Network": "Network",
   "StreamingOn": "Streaming on",
   "Genres": "Genres",
@@ -128,7 +119,9 @@
   "Status": "Status",
   "Details": "Details",
   "Close": "Close",
-
   "AnimeDisabled": "Anime support is disabled or not configured",
-  "AnimeDisabledHint": "An administrator can enable AnimeSchedule and add an API key in the plugin settings."
+  "AnimeDisabledHint": "An administrator can enable AnimeSchedule and add an API key in the plugin settings.",
+  "LoadMore": "Load more",
+  "ShowingNextDays": "Showing the next {0} days",
+  "HorizonReached": "That is everything ReleaseHub has fetched — {0} days ahead."
 }

@@ -58,6 +58,13 @@ public sealed class TvMazeProvider : IReleaseProvider, IDisposable
     public bool SupportsBulkSchedule => false;
 
     /// <inheritdoc />
+    /// <remarks>
+    /// A show's entire episode list arrives in the same single request however narrow the window is
+    /// asked for, so narrowing it would save nothing and only hide episodes already downloaded.
+    /// </remarks>
+    public TimeSpan? MaxLookAhead => null;
+
+    /// <inheritdoc />
     public Task<IReadOnlyList<ReleaseItem>> GetScheduleAsync(
         DateTime fromUtc,
         DateTime toUtc,
@@ -200,7 +207,10 @@ public sealed class TvMazeProvider : IReleaseProvider, IDisposable
     }
 
     /// <inheritdoc />
-    public async Task<ProviderTestResult> TestConnectionAsync(CancellationToken cancellationToken)
+    /// <remarks>TVMaze needs no credential, so <paramref name="credentialOverride"/> is ignored.</remarks>
+    public async Task<ProviderTestResult> TestConnectionAsync(
+        string? credentialOverride,
+        CancellationToken cancellationToken)
     {
         if (!Plugin.Config.TvMazeEnabled)
         {

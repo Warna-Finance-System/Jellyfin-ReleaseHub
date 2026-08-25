@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ReleaseHub — Web interface</title>
+  <style>
+    /* No hardcoded colours: Jellyfin themes restyle Jellyfin's own classes, so anything custom here
+       uses currentColor and neutral veils that read correctly on light and dark grounds alike. */
+    .rhState {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.6em;
+      padding: 0.9em 1em;
+      border-radius: 0.4em;
+      border: 0.06em solid rgba(127, 127, 127, 0.3);
+      background: rgba(127, 127, 127, 0.08);
+      margin-bottom: 1em;
+    }
+    .rhState .material-icons {
+      flex: none;
+      font-size: 1.4em;
+      opacity: 0.8;
+    }
+    .rhStateBody { flex: 1; min-width: 0; }
+    .rhStateTitle { font-weight: 600; margin-bottom: 0.15em; }
+    .rhStateDetail { opacity: 0.75; font-size: 0.92em; }
+    .rhFacts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(15em, 1fr));
+      gap: 0.75em;
+      margin: 1em 0;
+    }
+    .rhFact {
+      padding: 0.7em 0.9em;
+      border-radius: 0.35em;
+      background: rgba(127, 127, 127, 0.1);
+    }
+    .rhFactLabel { font-size: 0.82em; opacity: 0.7; }
+    .rhFactValue { font-weight: 600; margin-top: 0.15em; }
+    .rhSnippet {
+      font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+      font-size: 0.85em;
+      padding: 0.7em 0.9em;
+      border-radius: 0.35em;
+      background: rgba(127, 127, 127, 0.12);
+      overflow-x: auto;
+      white-space: pre;
+      margin: 0.6em 0 1em;
+    }
+    .rhButtonRow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6em;
+      margin-top: 1em;
+    }
+  </style>
+</head>
+<body>
+<div id="releaseHubInterfacePage" data-role="page" class="page type-interior pluginConfigurationPage fullWidthContent">
+  <div class="content-primary">
+
+    <div class="verticalSection">
+      <div class="sectionTitleContainer flex align-items-center">
+        <h2 class="sectionTitle">ReleaseHub — Web interface</h2>
+      </div>
+      <p class="fieldDescription">
+        Adjustments ReleaseHub applies to the page jellyfin-web serves. Each one is applied to the
+        response, never to a file on disk, so nothing another plugin or theme installed is modified or
+        deleted — and a theme update, a reinstall or a Jellyfin upgrade cannot undo the choice.
+      </p>
+      <a is="emby-linkbutton" href="#/configurationpage?name=ReleaseHub"
+         class="raised block emby-button" style="margin-top:1em;">
+        <span>← Back to ReleaseHub settings</span>
+      </a>
+    </div>
+
+    <!-- ===================== Requirement ===================== -->
+    <div id="rhTransformState" class="rhState" style="margin-top:1.5em;">
+      <span class="material-icons" aria-hidden="true">hourglass_empty</span>
+      <div class="rhStateBody">
+        <div class="rhStateTitle" id="rhTransformTitle">Checking…</div>
+        <div class="rhStateDetail" id="rhTransformDetail"></div>
+      </div>
+    </div>
+
+    <form class="releaseHubInterfaceForm">
+
+      <!-- ===================== Abyss spotlight ===================== -->
+      <div class="verticalSection">
+        <h2 class="sectionTitle">Abyss spotlight</h2>
+
+        <p class="fieldDescription">
+          The Abyss theme installs by writing into jellyfin-web on disk. Among other things it adds a
+          script tag to <code>index.html</code> that mounts its own hero carousel — an iframe — at the
+          top of the home tab:
+        </p>
+
+        <div class="rhSnippet">&lt;script src="ui/spotlight-loader.js" data-abyss-spotlight&gt;&lt;/script&gt;</div>
+
+        <p class="fieldDescription">
+          On a server that also runs the Media Bar plugin, the two carousels are mounted in the same
+          place and stack. The one underneath shows through as ghost text, a stray info button and a
+          second row of pagination dots, cycling on its own schedule.
+        </p>
+
+        <p class="fieldDescription">
+          Because that tag lives in a file rather than in a plugin, uninstalling plugins never removes
+          it, and editing the file by hand is undone by the next theme or server update. ReleaseHub
+          strips it from the response instead, which no update can reverse. Everything Abyss installed
+          stays on disk untouched: clearing this box brings the carousel back immediately.
+        </p>
+
+        <label class="checkboxContainer">
+          <input is="emby-checkbox" type="checkbox" id="rhHideAbyssSpotlight" />
+          <span>Hide the Abyss spotlight carousel</span>
+        </label>
+
+        <div class="rhFacts" id="rhFacts">
+          <div class="rhFact">
+            <div class="rhFactLabel">Detected in the served page</div>
+            <div class="rhFactValue" id="rhFactDetected">—</div>
+          </div>
+          <div class="rhFact">
+            <div class="rhFactLabel">Currently removed</div>
+            <div class="rhFactValue" id="rhFactRemoved">—</div>
+          </div>
+        </div>
+
+        <div class="fieldDescription" id="rhFactsNote"></div>
+      </div>
+
+      <div class="rhButtonRow">
+        <button is="emby-button" type="submit" class="raised button-submit emby-button">
+          <span>Save</span>
+        </button>
+        <button is="emby-button" type="button" id="rhRefreshInterface" class="raised emby-button">
+          <span>Refresh</span>
+        </button>
+      </div>
+      <div class="fieldDescription" id="rhSaveFeedback" style="margin-top:0.6em;"></div>
+    </form>
+
+  </div>
+
+  <script type="text/javascript">
+    (function () {
+      var PLUGIN_ID = '8d9233a8-2ce9-4603-b5e2-e26f89f9408c';
+      var page;
+
+      function $(id) {
+        return page.querySelector('#' + id);
+      }
+
+      function setState(glyph, title, detail) {
+        var box = $('rhTransformState');
+        box.querySelector('.material-icons').textContent = glyph;
+        $('rhTransformTitle').textContent = title;
+        $('rhTransformDetail').textContent = detail;
+      }
+
+      function loadStatus() {
+        return ApiClient.getJSON(ApiClient.getUrl('ReleaseHub/Interface/Status')).then(function (s) {
+          if (!s.FileTransformationAvailable) {
+            // Stated first and plainly: without File Transformation nothing on this page can take
+            // effect, and a checkbox that silently does nothing is worse than an absent one.
+            setState(
+              'error_outline',
+              'File Transformation is not available',
+              'ReleaseHub can only alter the served page through the File Transformation plugin. '
+              + 'Install it and restart the server; until then the setting below is saved but has no '
+              + 'effect.');
+          } else if (!s.IndexHtmlObserved) {
+            setState(
+              'hourglass_empty',
+              'Waiting for the first page load',
+              'ReleaseHub is registered, but no web page has been served since the server started, so '
+              + 'there is nothing to report yet. Open the Jellyfin web interface, then press Refresh.');
+          } else if (s.AbyssSpotlightDetected) {
+            setState(
+              s.AbyssSpotlightRemoved ? 'check_circle' : 'info',
+              s.AbyssSpotlightRemoved
+                ? 'The Abyss spotlight is being removed'
+                : 'The Abyss spotlight is present',
+              s.AbyssSpotlightRemoved
+                ? 'It was found in the page and stripped from the response.'
+                : 'It was found in the page and is currently left in place.');
+          } else {
+            setState(
+              'check_circle',
+              'No Abyss spotlight found',
+              'The last page ReleaseHub transformed carried no Abyss spotlight tag — the theme is '
+              + 'either not installed or no longer injects one. Nothing to hide.');
+          }
+
+          $('rhFactDetected').textContent = !s.IndexHtmlObserved
+            ? 'Not observed yet'
+            : (s.AbyssSpotlightDetected ? 'Yes' : 'No');
+
+          $('rhFactRemoved').textContent = !s.IndexHtmlObserved
+            ? 'Not observed yet'
+            : (s.AbyssSpotlightRemoved ? 'Yes' : 'No');
+
+          // The saved preference and what the last page actually did are two different things; saying
+          // so beats letting a stale observation read as a failure.
+          $('rhFactsNote').textContent = s.HideAbyssSpotlight && s.IndexHtmlObserved
+            && s.AbyssSpotlightDetected && !s.AbyssSpotlightRemoved
+            ? 'These figures describe the last page that was served. Reload the Jellyfin web '
+              + 'interface, then press Refresh to see the saved setting reflected here.'
+            : '';
+        }, function () {
+          setState(
+            'error_outline',
+            'Could not read the current state',
+            'The ReleaseHub API did not answer. Check the server log.');
+        });
+      }
+
+      function load() {
+        Dashboard.showLoadingMsg();
+
+        ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
+          $('rhHideAbyssSpotlight').checked = !!config.HideAbyssSpotlight;
+          return loadStatus();
+        }).then(function () {
+          Dashboard.hideLoadingMsg();
+        }, function () {
+          Dashboard.hideLoadingMsg();
+        });
+      }
+
+      function save(event) {
+        event.preventDefault();
+        Dashboard.showLoadingMsg();
+
+        ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
+          config.HideAbyssSpotlight = $('rhHideAbyssSpotlight').checked;
+
+          ApiClient.updatePluginConfiguration(PLUGIN_ID, config).then(function (result) {
+            Dashboard.processPluginConfigurationUpdateResult(result);
+
+            // Takes effect on the next page the server sends, not on this already-loaded one.
+            $('rhSaveFeedback').textContent =
+              'Saved. Reload the Jellyfin web interface (Ctrl+F5) to see the change.';
+
+            loadStatus();
+          });
+        });
+
+        return false;
+      }
+
+      // pageshow fires on every navigation back to this view, so bind the handlers once and
+      // only refresh the values on subsequent shows.
+      var bound = false;
+
+      document.querySelector('#releaseHubInterfacePage')
+        .addEventListener('pageshow', function () {
+          page = this;
+
+          if (!bound) {
+            bound = true;
+            page.querySelector('.releaseHubInterfaceForm').addEventListener('submit', save);
+            page.querySelector('#rhRefreshInterface').addEventListener('click', loadStatus);
+          }
+
+          load();
+        });
+    })();
+  </script>
+</div>
+</body>
+</html>

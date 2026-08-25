@@ -20,10 +20,26 @@ namespace Jellyfin.Plugin.ReleaseHub.Services;
 public sealed class ReleaseService
 {
     /// <summary>
-    /// How far ahead a synchronization looks. Wide enough to cover the 30-day calendar and the
-    /// "next season" horizon, without asking providers for data nobody will look at.
+    /// How far ahead a synchronization looks.
     /// </summary>
-    private static readonly TimeSpan SyncHorizon = TimeSpan.FromDays(92);
+    /// <remarks>
+    /// A full year, which costs nothing extra for the two providers whose price does not depend on the
+    /// window: TVMaze returns a show's entire episode list in one request however wide the window, and
+    /// TMDb bills one request per film either way. AnimeSchedule is the exception — it bills one
+    /// request per week — so it declares its own shorter <see cref="IReleaseProvider.MaxLookAhead"/>
+    /// rather than being asked for weeks whose timetable has not been published yet.
+    /// </remarks>
+    private static readonly TimeSpan SyncHorizon = TimeSpan.FromDays(365);
+
+    /// <summary>
+    /// Gets how many days ahead the cache can possibly hold data for.
+    /// </summary>
+    /// <remarks>
+    /// Published so the interface can stop offering to load more at the point where there is nothing
+    /// left to load. Without it the client would have to hardcode this number, and would keep showing
+    /// empty pages the moment the horizon changed.
+    /// </remarks>
+    public static int HorizonDays => (int)SyncHorizon.TotalDays;
 
     /// <summary>
     /// How far back a synchronization looks, so that something that aired earlier today still shows.
@@ -86,6 +102,10 @@ public sealed class ReleaseService
         var releaseCount = 0;
         var failures = new List<string>();
 
+        // A provider that rejects the credential will reject it identically for every remaining
+        // series, so it is dropped for the rest of the run rather than retried hundreds of times.
+        var rejected = new HashSet<ReleaseProviderKind>();
+
         // Bulk-capable providers are primed once for the whole window; per-series providers are asked
         // series by series below. Doing this first also warms the in-provider week memo.
         var bulk = new Dictionary<ReleaseProviderKind, List<ReleaseItem>>();
@@ -93,7 +113,9 @@ public sealed class ReleaseService
         {
             try
             {
-                var items = await provider.GetScheduleAsync(fromUtc, toUtc, cancellationToken).ConfigureAwait(false);
+                var items = await provider
+                    .GetScheduleAsync(fromUtc, WindowEndFor(provider.MaxLookAhead, fromUtc, toUtc), cancellationToken)
+                    .ConfigureAwait(false);
                 bulk[provider.Kind] = items.ToList();
                 _logger.LogDebug("{Provider} returned {Count} scheduled releases", provider.Kind, items.Count);
             }
@@ -110,36 +132,62 @@ public sealed class ReleaseService
             progress?.Report(100.0 * index / Math.Max(targets.Count, 1));
 
             var target = targets[index];
-            var provider = ChooseProvider(available, target);
-            if (provider is null)
-            {
-                continue;
-            }
+            var candidates = ChooseProviders(available, target);
 
-            try
+            // Walk the preference order until one provider actually yields something. Stopping at the
+            // first failure is what previously made a whole series disappear when its preferred
+            // provider was unreachable or rejected its credential.
+            foreach (var provider in candidates)
             {
-                var outcome = await SynchronizeTargetAsync(
-                    provider,
-                    target,
-                    bulk,
-                    fromUtc,
-                    toUtc,
-                    budget,
-                    cancellationToken).ConfigureAwait(false);
+                if (rejected.Contains(provider.Kind))
+                {
+                    continue;
+                }
 
-                resolved += outcome.Resolved ? 1 : 0;
-                pending += outcome.Pending ? 1 : 0;
-                releaseCount += outcome.ReleaseCount;
-            }
-            catch (ProviderUnavailableException ex)
-            {
-                // Whatever is already cached for this series stays; the next run will try again.
-                failures.Add($"{provider.Kind}: {ex.Message}");
-                _logger.LogWarning(
-                    "{Provider} failed while handling \"{Title}\": {Reason}",
-                    provider.Kind,
-                    target.Title,
-                    ex.Message);
+                try
+                {
+                    var outcome = await SynchronizeTargetAsync(
+                        provider,
+                        target,
+                        bulk,
+                        fromUtc,
+                        WindowEndFor(provider.MaxLookAhead, fromUtc, toUtc),
+                        budget,
+                        cancellationToken).ConfigureAwait(false);
+
+                    resolved += outcome.Resolved ? 1 : 0;
+                    pending += outcome.Pending ? 1 : 0;
+                    releaseCount += outcome.ReleaseCount;
+
+                    if (outcome.Resolved || outcome.Pending)
+                    {
+                        break;
+                    }
+                }
+                catch (ProviderUnavailableException ex)
+                {
+                    // Whatever is already cached for this series stays; the next provider is tried,
+                    // and failing that the next run will retry from the top.
+                    var failure = $"{provider.Kind}: {ex.Message}";
+                    if (!failures.Contains(failure, StringComparer.Ordinal))
+                    {
+                        failures.Add(failure);
+                    }
+
+                    if (ex.IsAuthenticationFailure && rejected.Add(provider.Kind))
+                    {
+                        _logger.LogWarning(
+                            "{Provider} rejected the configured credential; skipping it for the rest of "
+                            + "this run. Other providers still cover their series",
+                            provider.Kind);
+                    }
+
+                    _logger.LogWarning(
+                        "{Provider} failed while handling \"{Title}\": {Reason}",
+                        provider.Kind,
+                        target.Title,
+                        ex.Message);
+                }
             }
 
             if (budget.IsExhausted)
@@ -155,6 +203,10 @@ public sealed class ReleaseService
 
         progress?.Report(100);
         await _cache.SetLastSyncAsync(DateTime.UtcNow, cancellationToken).ConfigureAwait(false);
+
+        // Kept so the settings page can say *why* a provider contributed nothing. A silent failure is
+        // what let a rejected API key look like "this series simply has no upcoming episodes".
+        await _cache.SetLastSyncIssuesAsync(failures, cancellationToken).ConfigureAwait(false);
 
         var summary = new SyncSummary(targets.Count, resolved, pending, releaseCount, failures);
         _logger.LogInformation(
@@ -216,6 +268,7 @@ public sealed class ReleaseService
     /// <param name="query">The search text.</param>
     /// <param name="includeAnime">Whether to search AnimeSchedule.</param>
     /// <param name="includeTvSeries">Whether to search TVMaze.</param>
+    /// <param name="includeMovies">Whether to search TMDb.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>Search results annotated with library and follow state.</returns>
     public async Task<IReadOnlyList<DiscoverResult>> SearchAsync(
@@ -223,6 +276,7 @@ public sealed class ReleaseService
         string query,
         bool includeAnime,
         bool includeTvSeries,
+        bool includeMovies,
         CancellationToken cancellationToken)
     {
         var followed = await _cache.GetFollowedAsync(userId, cancellationToken).ConfigureAwait(false);
@@ -235,7 +289,13 @@ public sealed class ReleaseService
 
         foreach (var provider in _providers.Where(p => p.IsAvailable))
         {
-            var wanted = provider.Kind == ReleaseProviderKind.AnimeSchedule ? includeAnime : includeTvSeries;
+            var wanted = provider.Kind switch
+            {
+                ReleaseProviderKind.AnimeSchedule => includeAnime,
+                ReleaseProviderKind.Tmdb => includeMovies,
+                _ => includeTvSeries
+            };
+
             if (!wanted)
             {
                 continue;
@@ -310,8 +370,9 @@ public sealed class ReleaseService
         try
         {
             var now = DateTime.UtcNow;
+            var from = now - SyncLookBack;
             var releases = await implementation
-                .GetReleasesAsync(series, now - SyncLookBack, now + SyncHorizon, cancellationToken)
+                .GetReleasesAsync(series, from, WindowEndFor(implementation.MaxLookAhead, from, now + SyncHorizon), cancellationToken)
                 .ConfigureAwait(false);
 
             await _cache.SaveReleasesAsync(provider, providerId, releases, cancellationToken).ConfigureAwait(false);
@@ -326,6 +387,31 @@ public sealed class ReleaseService
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Trims the synchronization window to what a given provider is worth asking for.
+    /// </summary>
+    /// <param name="maxLookAhead">
+    /// The provider's <see cref="IReleaseProvider.MaxLookAhead"/>, or <see langword="null"/> when the
+    /// window costs it nothing.
+    /// </param>
+    /// <param name="fromUtc">Start of the full window.</param>
+    /// <param name="toUtc">End of the full window.</param>
+    /// <returns>The end of the window to request from this provider.</returns>
+    /// <remarks>
+    /// Takes the limit rather than the provider so that it can be exercised without standing up an
+    /// implementation of the whole provider contract.
+    /// </remarks>
+    internal static DateTime WindowEndFor(TimeSpan? maxLookAhead, DateTime fromUtc, DateTime toUtc)
+    {
+        if (maxLookAhead is not { } limit)
+        {
+            return toUtc;
+        }
+
+        var capped = fromUtc + limit;
+        return capped < toUtc ? capped : toUtc;
     }
 
     /// <summary>
@@ -445,26 +531,51 @@ public sealed class ReleaseService
         return targets;
     }
 
-    private IReleaseProvider? ChooseProvider(IReadOnlyList<IReleaseProvider> available, SyncTarget target)
+    /// <summary>
+    /// Orders the providers to try for a target, best first.
+    /// </summary>
+    /// <param name="available">Providers that are enabled and configured.</param>
+    /// <param name="target">The series being synchronized.</param>
+    /// <returns>The providers to attempt, in order.</returns>
+    /// <remarks>
+    /// A list rather than a single choice, because "configured" is not the same as "working". A key
+    /// that the provider rejects, an outage, or simply a series that provider has never heard of would
+    /// otherwise make the series vanish from the calendar entirely — even when the other provider
+    /// holds it and Jellyfin already stores a matching identifier for it. Preference still decides the
+    /// order; the fallback only decides what happens when the preferred one produces nothing.
+    /// </remarks>
+    private static List<IReleaseProvider> ChooseProviders(
+        IReadOnlyList<IReleaseProvider> available,
+        SyncTarget target)
     {
-        // A followed item is already bound to the provider it was discovered on.
+        // A followed item is bound to the provider it was discovered on: its identifier is meaningless
+        // anywhere else, so there is nothing to fall back to.
         if (target.Followed is { } followed)
         {
-            return available.FirstOrDefault(provider => provider.Kind == followed.Provider);
+            var bound = available.FirstOrDefault(provider => provider.Kind == followed.Provider);
+            return bound is null ? [] : [bound];
         }
 
-        // Anime goes to AnimeSchedule when it is usable, because it carries real airtimes and the
-        // sub/dub distinction that TVMaze does not model; otherwise TVMaze still covers it.
-        if (target.Identity.IsAnime)
+        var tvMaze = available.FirstOrDefault(p => p.Kind == ReleaseProviderKind.TvMaze);
+        var animeSchedule = available.FirstOrDefault(p => p.Kind == ReleaseProviderKind.AnimeSchedule);
+        var tmdb = available.FirstOrDefault(p => p.Kind == ReleaseProviderKind.Tmdb);
+
+        // A film has exactly one possible answer. There is no fallback here on purpose: neither of the
+        // other providers catalogues films, so trying them would waste a request and could only ever
+        // produce a wrong match against a same-named series.
+        if (target.Identity.IsMovie)
         {
-            var anime = available.FirstOrDefault(p => p.Kind == ReleaseProviderKind.AnimeSchedule);
-            if (anime is not null)
-            {
-                return anime;
-            }
+            return tmdb is null ? [] : [tmdb];
         }
 
-        return available.FirstOrDefault(p => p.Kind == ReleaseProviderKind.TvMaze);
+        // Anime prefers AnimeSchedule, which carries real airtimes and the sub/dub distinction that
+        // TVMaze does not model; TVMaze still covers most anime and is the safety net. TMDb is absent
+        // from both lists because it holds films, not broadcast schedules.
+        var ordered = target.Identity.IsAnime
+            ? new[] { animeSchedule, tvMaze }
+            : new[] { tvMaze, animeSchedule };
+
+        return ordered.Where(provider => provider is not null).Select(provider => provider!).ToList();
     }
 
     private async Task<TargetOutcome> SynchronizeTargetAsync(

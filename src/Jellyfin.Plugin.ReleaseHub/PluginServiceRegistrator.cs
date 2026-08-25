@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.ReleaseHub.Integration;
 using Jellyfin.Plugin.ReleaseHub.Providers;
 using Jellyfin.Plugin.ReleaseHub.Providers.AnimeSchedule;
+using Jellyfin.Plugin.ReleaseHub.Providers.Tmdb;
 using Jellyfin.Plugin.ReleaseHub.Providers.TvMaze;
 using Jellyfin.Plugin.ReleaseHub.Services;
 using MediaBrowser.Controller;
@@ -29,11 +30,13 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 
         serviceCollection.AddSingleton<TvMazeProvider>();
         serviceCollection.AddSingleton<AnimeScheduleProvider>();
+        serviceCollection.AddSingleton<TmdbProvider>();
 
         // Registered through the interface as well so ReleaseService and the controller receive every
         // provider without naming them; adding a third provider means adding one line here.
         serviceCollection.AddSingleton<IReleaseProvider>(sp => sp.GetRequiredService<TvMazeProvider>());
         serviceCollection.AddSingleton<IReleaseProvider>(sp => sp.GetRequiredService<AnimeScheduleProvider>());
+        serviceCollection.AddSingleton<IReleaseProvider>(sp => sp.GetRequiredService<TmdbProvider>());
 
         serviceCollection.AddSingleton<ReleaseService>();
 

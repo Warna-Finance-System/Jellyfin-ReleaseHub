@@ -1,0 +1,35 @@
+# Shapes the changelog GitHub generates for a release, so the notes read as categories rather than
+# as a flat list of commit subjects. Consumed by `generate_release_notes` in the release workflow.
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+    authors:
+      - github-actions
+      - dependabot
+
+  categories:
+    - title: Breaking changes
+      labels: [breaking]
+
+    - title: Features
+      labels: [feature, enhancement]
+
+    - title: Fixes
+      labels: [bug, fix]
+
+    - title: Providers
+      labels: [provider, tvmaze, animeschedule, tmdb]
+
+    - title: Interface
+      labels: [ui, frontend, localization]
+
+    - title: Documentation
+      labels: [documentation]
+
+    - title: Maintenance
+      labels: [chore, dependencies, ci]
+
+    # Anything unlabelled still appears rather than being silently dropped.
+    - title: Other changes
+      labels: ["*"]

@@ -18,12 +18,19 @@
 
   var LAYOUT_STORAGE_KEY = 'releasehub.layout';
 
+  /** How much further ahead each press of "load more" reaches, in days. */
+  var UPCOMING_PAGE_DAYS = 60;
+
   var state = {
     view: 'calendar',
     filter: 'all',
     range: 7,
     layout: 'list',
     weekOffset: 0,
+
+    // Window the Upcoming view currently asks for, widened by "load more". Reset whenever the view or
+    // the filter changes, so the button never silently keeps a stale depth.
+    upcomingDays: UPCOMING_PAGE_DAYS,
     query: '',
     strings: {},
     status: null,
@@ -176,6 +183,24 @@
     return date.getFullYear() + '-' + (date.getMonth() + 1) + '-' + date.getDate();
   }
 
+  /**
+   * Uppercases the first letter and leaves the rest of the string alone.
+   *
+   * Locales return day and month names lowercased in French ("dimanche 23 août"). A sentence needs its
+   * initial capital, but `text-transform: capitalize` would also capitalise the month, which French
+   * does not do. Only the first character is touched.
+   */
+  function capitalizeFirst(text) {
+    return text ? text.charAt(0).toLocaleUpperCase() + text.slice(1) : text;
+  }
+
+  /**
+   * Formats a date as the locale writes it, with no capitalisation of its own.
+   *
+   * Whether the result opens a sentence is the caller's business: standing alone as a heading it needs
+   * an initial capital, but embedded in "Sorties du {0}" it must stay lowercase, which is exactly how
+   * French writes it.
+   */
   function formatDayHeading(date, culture) {
     return date.toLocaleDateString(culture, {
       weekday: 'long',
@@ -188,22 +213,51 @@
     return date.toLocaleTimeString(culture, { hour: '2-digit', minute: '2-digit' });
   }
 
-  function relativeDayLabel(date, culture) {
+  /**
+   * Which of the four buckets a date falls in, as a translation key rather than a translated label.
+   *
+   * Bucketing on the key matters: two languages are free to translate two different buckets to the
+   * same words, and comparing rendered labels would then silently merge them.
+   */
+  function relativeDayKey(date) {
     var today = new Date();
     var startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     var startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     var diffDays = Math.round((startOfDate - startOfToday) / 86400000);
 
     if (diffDays === 0) {
-      return t('Today');
+      return 'Today';
     }
     if (diffDays === 1) {
-      return t('Tomorrow');
+      return 'Tomorrow';
     }
     if (diffDays > 1 && diffDays < 7) {
-      return t('ThisWeek');
+      return 'ThisWeek';
     }
-    return t('Later');
+    return 'Later';
+  }
+
+  function relativeDayLabel(date) {
+    return t(relativeDayKey(date));
+  }
+
+  /**
+   * Writes a date the way a standalone label should read: weekday included, initial capital.
+   *
+   * The weekday is the point. "6 sept." answers which date, not which day, and "is that a Saturday?"
+   * is precisely what someone reads a release list to find out.
+   */
+  function formatShortDate(date, culture) {
+    return capitalizeFirst(date.toLocaleDateString(culture, {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short'
+    }));
+  }
+
+  /** How many days ahead the cache can possibly hold data for, as published by /Status. */
+  function horizonDays() {
+    return (state.status && state.status.HorizonDays) || UPCOMING_PAGE_DAYS;
   }
 
   function formatLastUpdated(iso, culture) {
@@ -216,15 +270,48 @@
 
   /* ------------------------------------------------------------- chrome */
 
+  /**
+   * Reads the opaque colour the page is actually painted with.
+   *
+   * Walks up from the container until it finds an ancestor with a fully opaque background. The
+   * bootstrap already samples the theme once when it opens the full-page view, so this reads back
+   * what was applied rather than sampling a second time; when ReleaseHub is opened from the dashboard
+   * instead, it finds whatever that page paints.
+   */
+  function surfaceBackground(node) {
+    for (var el = node; el && el !== document.documentElement; el = el.parentElement) {
+      var colour = window.getComputedStyle(el).backgroundColor;
+      if (!colour) {
+        continue;
+      }
+
+      var parts = (colour.match(/rgba?\(([^)]+)\)/) || [])[1];
+      if (!parts) {
+        continue;
+      }
+
+      var values = parts.split(',');
+      var opaque = values.length < 4 || parseFloat(values[3]) > 0.95;
+      if (opaque) {
+        return colour;
+      }
+    }
+
+    return null;
+  }
+
   function buildHeader() {
+    // No title and no search icon here on purpose. The ReleaseHub tab in Jellyfin's own header
+    // already says where you are, so repeating the name cost a whole row of vertical space; and the
+    // Discover tab is the search entry point, so a second magnifier only doubled the affordances.
+    // The tab bar sitting directly under Jellyfin's header is what signals a distinct interface.
     var header = el('div', 'releasehub-header');
 
-    var titleRow = el('div', 'releasehub-titleRow');
-    titleRow.appendChild(el('h1', 'sectionTitle releasehub-title', t('AppTitle')));
+    var surface = surfaceBackground(state.container);
+    if (surface) {
+      header.style.backgroundColor = surface;
+    }
 
-    // No search affordance here on purpose: the Discover tab is the search entry point, and a second
-    // magnifier next to it only made the header look like it had two of everything.
-    header.appendChild(titleRow);
     header.appendChild(buildTabs());
     header.appendChild(buildFilters());
 
@@ -265,6 +352,12 @@
       { id: 'tv', label: t('TvSeries') }
     ];
 
+    // Only offered when TMDb can actually answer: a filter that always returns nothing is worse than
+    // no filter at all.
+    if (state.status && state.status.MoviesEnabled) {
+      filters.push({ id: 'movie', label: t('Movies') });
+    }
+
     filters.forEach(function (filter) {
       var button = el('button', 'emby-button releasehub-chip');
       button.type = 'button';
@@ -274,6 +367,7 @@
       button.appendChild(el('span', null, filter.label));
       button.addEventListener('click', function () {
         state.filter = filter.id;
+        state.upcomingDays = UPCOMING_PAGE_DAYS;
         render();
       });
       row.appendChild(button);
@@ -341,7 +435,7 @@
   /* -------------------------------------------------------------- cards */
 
   function posterFor(item) {
-    var wrapper = el('div', 'releasehub-poster cardImageContainer');
+    var wrapper = el('div', 'releasehub-poster');
 
     if (item.PosterUrl) {
       var img = el('img', 'releasehub-posterImage');
@@ -420,7 +514,8 @@
 
     var date = localDate(item);
     if (options && options.showDate && date) {
-      footer.appendChild(el('span', 'releasehub-when', formatDayHeading(date, culture)));
+      footer.appendChild(el('span', 'releasehub-when',
+        capitalizeFirst(formatDayHeading(date, culture))));
     }
 
     if (date && item.HasReleaseTime) {
@@ -529,9 +624,9 @@
 
   function dayHeading(group, culture) {
     var heading = el('h2', 'releasehub-dayHeading sectionTitle');
-    heading.appendChild(el('span', null, formatDayHeading(group.date, culture)));
+    heading.appendChild(el('span', null, capitalizeFirst(formatDayHeading(group.date, culture))));
     heading.appendChild(el('span', 'releasehub-dayRelative secondaryText',
-      relativeDayLabel(group.date, culture)));
+      relativeDayLabel(group.date)));
     return heading;
   }
 
@@ -611,7 +706,7 @@
     previous.disabled = state.weekOffset <= 0;
     previous.addEventListener('click', function () {
       state.weekOffset -= 1;
-      render();
+      renderSoon();
     });
 
     var next = el('button', 'paper-icon-button-light releasehub-weekNavButton');
@@ -619,10 +714,13 @@
     next.title = t('NextWeek');
     next.setAttribute('aria-label', next.title);
     next.appendChild(icon('chevron_right'));
-    next.disabled = state.weekOffset >= 12;
+    // Matches the synchronization horizon: past it the cache holds nothing, and an empty week there
+    // would be an artefact of the cache rather than a real absence of broadcasts. Read from /Status so
+    // that changing the horizon does not leave a stale number hardcoded here.
+    next.disabled = state.weekOffset >= Math.floor(horizonDays() / 7);
     next.addEventListener('click', function () {
       state.weekOffset += 1;
-      render();
+      renderSoon();
     });
 
     var weekEnd = new Date(weekStart);
@@ -676,7 +774,7 @@
 
       var header = el('div', 'releasehub-weekHeader');
       header.appendChild(el('div', 'releasehub-weekDay',
-        date.toLocaleDateString(culture, { weekday: 'long', day: 'numeric' })));
+        capitalizeFirst(date.toLocaleDateString(culture, { weekday: 'long', day: 'numeric' }))));
 
       // The marker slot is always present, empty or not, so every column header is the same height.
       var marker = el('div', 'releasehub-weekToday');
@@ -745,7 +843,7 @@
       heading.appendChild(el('span', null,
         t('ReleasesOn', formatDayHeading(group.date, culture))));
       heading.appendChild(el('span', 'releasehub-dayRelative secondaryText',
-        relativeDayLabel(group.date, culture)));
+        relativeDayLabel(group.date)));
       section.appendChild(heading);
 
       var grid = el('div', 'releasehub-posterGrid');
@@ -772,9 +870,9 @@
   }
 
   function followedPosterCard(item) {
-    var card = el('div', 'releasehub-posterCard card');
+    var card = el('div', 'releasehub-posterCard');
 
-    var art = el('div', 'releasehub-posterArt cardImageContainer');
+    var art = el('div', 'releasehub-posterArt');
     if (item.PosterUrl) {
       var img = el('img', 'releasehub-posterImage');
       img.src = /^https?:/i.test(item.PosterUrl)
@@ -792,9 +890,9 @@
     }
     card.appendChild(art);
 
-    card.appendChild(el('div', 'releasehub-posterTitle cardText', item.Title));
+    card.appendChild(el('div', 'releasehub-posterTitle', item.Title));
 
-    var footer = el('div', 'releasehub-posterFooter cardText-secondary');
+    var footer = el('div', 'releasehub-posterFooter secondaryText');
     footer.appendChild(el('div', null, item.IsAnime ? t('Anime') : t('TvSeries')));
 
     var button = el('button', 'emby-button raised releasehub-posterAction');
@@ -812,9 +910,9 @@
   }
 
   function posterCard(item, culture, options) {
-    var card = el('div', 'releasehub-posterCard card');
+    var card = el('div', 'releasehub-posterCard');
 
-    var art = el('div', 'releasehub-posterArt cardImageContainer');
+    var art = el('div', 'releasehub-posterArt');
     if (item.PosterUrl) {
       var img = el('img', 'releasehub-posterImage');
       img.src = /^https?:/i.test(item.PosterUrl)
@@ -846,17 +944,16 @@
     }
 
     card.appendChild(art);
-    card.appendChild(el('div', 'releasehub-posterTitle cardText', item.Title));
+    card.appendChild(el('div', 'releasehub-posterTitle', item.Title));
 
-    var footer = el('div', 'releasehub-posterFooter cardText-secondary');
+    var footer = el('div', 'releasehub-posterFooter secondaryText');
 
     var date = localDate(item);
 
     if (options && options.showDate && date) {
       var day = el('div', 'releasehub-posterDate');
       day.appendChild(icon('event'));
-      day.appendChild(el('span', null,
-        date.toLocaleDateString(culture, { day: 'numeric', month: 'short' })));
+      day.appendChild(el('span', null, formatShortDate(date, culture)));
       footer.appendChild(day);
     }
 
@@ -882,67 +979,167 @@
     return card;
   }
 
+  /**
+   * The Upcoming view: the next releases, grouped by how soon they are, loaded a window at a time.
+   *
+   * Pressing "load more" fetches only the days not already on screen and appends them to the sections
+   * already rendered. Rebuilding the whole view would have thrown away everything the reader had
+   * scrolled to and put them back at the top, to show them the same rows again.
+   */
   function renderUpcoming(body, culture) {
+    var stream = el('div', 'releasehub-stream');
+    var footer = el('div', 'releasehub-loadMore');
+    var sections = {};
+    var loadedDays = 0;
+    var emptyNote = null;
+
     body.appendChild(loadingNode());
 
-    apiGet('Upcoming', { filter: state.filter }).then(function (response) {
-      clear(body);
-      body.appendChild(freshnessNote(response.LastSyncUtc, culture));
-
-      if (!response.Items.length) {
-        body.appendChild(emptyState('NoReleases', 'NoReleasesHint'));
-        return;
+    // Bucketed here rather than server-side: Today/Tomorrow depend on the viewer's timezone, which
+    // only the browser knows.
+    function sectionFor(key) {
+      if (sections[key]) {
+        return sections[key];
       }
 
-      // Bucketed here rather than server-side: Today/Tomorrow depend on the viewer's timezone, which
-      // only the browser knows.
-      var buckets = [
-        { key: 'Today', items: [] },
-        { key: 'Tomorrow', items: [] },
-        { key: 'ThisWeek', items: [] },
-        { key: 'Later', items: [] }
-      ];
+      var section = el('div', 'releasehub-daySection verticalSection');
+      section.appendChild(el('h2', 'releasehub-dayHeading sectionTitle', t(key)));
 
-      response.Items.forEach(function (item) {
+      var container = effectiveLayout() === 'poster'
+        ? el('div', 'releasehub-posterGrid')
+        : el('div', 'releasehub-dayItems paperList');
+
+      section.appendChild(container);
+      stream.appendChild(section);
+      sections[key] = container;
+      return container;
+    }
+
+    function append(items, animate) {
+      var posters = effectiveLayout() === 'poster';
+      var added = 0;
+
+      items.forEach(function (item) {
         var date = localDate(item);
         if (!date) {
           return;
         }
-        var label = relativeDayLabel(date, culture);
-        for (var i = 0; i < buckets.length; i++) {
-          if (t(buckets[i].key) === label) {
-            buckets[i].items.push(item);
-            return;
-          }
+
+        var key = relativeDayKey(date);
+
+        // Everything but Today carries its date. "Tomorrow" and "This week" name a bucket, not a day,
+        // and the reader still has to know which day that is.
+        var options = { showDate: key !== 'Today' };
+        var node = posters
+          ? posterCard(item, culture, options)
+          : releaseRow(item, culture, options);
+
+        if (animate) {
+          node.classList.add('releasehub-enter');
+          // Staggered only across the first rows: beyond that the delay stops reading as an animation
+          // and starts reading as lag.
+          node.style.animationDelay = (Math.min(added, 12) * 30) + 'ms';
         }
+
+        sectionFor(key).appendChild(node);
+        added++;
       });
 
-      var posters = effectiveLayout() === 'poster';
+      if (added && emptyNote) {
+        emptyNote.remove();
+        emptyNote = null;
+      }
 
-      buckets.forEach(function (bucket) {
-        if (!bucket.items.length) {
-          return;
-        }
+      return added;
+    }
 
-        var section = el('div', 'releasehub-daySection verticalSection');
-        section.appendChild(el('h2', 'releasehub-dayHeading sectionTitle', t(bucket.key)));
+    function fetchPage(offset, days, animate) {
+      return apiGet('Upcoming', {
+        days: days,
+        offset: offset,
+        filter: state.filter
+      }).then(function (response) {
+        // The server clamps the window to what it can actually answer for, so the depth reached comes
+        // from the response rather than from what was asked.
+        loadedDays = offset + response.RangeDays;
 
-        if (posters) {
-          var grid = el('div', 'releasehub-posterGrid');
-          bucket.items.forEach(function (item) {
-            grid.appendChild(posterCard(item, culture, { showDate: bucket.key === 'Later' }));
-          });
-          section.appendChild(grid);
-        } else {
-          var list = el('div', 'releasehub-dayItems paperList');
-          bucket.items.forEach(function (item) {
-            list.appendChild(releaseRow(item, culture, { showDate: bucket.key === 'Later' }));
-          });
-          section.appendChild(list);
-        }
+        // Survives a re-render: switching to posters rebuilds the view, and dropping back to the first
+        // window there would silently undo every press of "load more".
+        state.upcomingDays = loadedDays;
 
-        body.appendChild(section);
+        response.added = append(response.Items, animate);
+        return response;
       });
+    }
+
+    /**
+     * Loads windows until one of them has something in it, or the horizon is reached.
+     *
+     * These reads never touch a provider — they are SQLite queries — so skipping over a stretch with
+     * nothing scheduled costs nothing, and spares the reader a press that visibly does nothing.
+     */
+    function loadNext() {
+      return fetchPage(loadedDays, UPCOMING_PAGE_DAYS, true).then(function (response) {
+        if (!response.added && loadedDays < horizonDays()) {
+          return loadNext();
+        }
+        return response;
+      });
+    }
+
+    function renderFooter() {
+      clear(footer);
+
+      var horizon = horizonDays();
+
+      // Reaching the end is stated rather than left to a button that would return an empty page: past
+      // the synchronization horizon nothing has ever been fetched, and an empty result there would
+      // read as "nothing is scheduled" when it means "nothing was looked up".
+      if (loadedDays >= horizon) {
+        footer.appendChild(el('div', 'releasehub-loadMoreNote secondaryText',
+          t('HorizonReached', horizon)));
+        return;
+      }
+
+      var button = el('button', 'emby-button raised releasehub-loadMoreButton');
+      button.type = 'button';
+      button.appendChild(icon('expand_more'));
+      button.appendChild(el('span', null, t('LoadMore')));
+
+      button.addEventListener('click', function () {
+        // The spinner takes the button's place: a disabled button with unchanged text does not say
+        // whether the press was registered.
+        clear(footer);
+        footer.appendChild(loadingNode());
+
+        loadNext().then(renderFooter, function () {
+          renderFooter();
+          footer.appendChild(el('div', 'releasehub-loadMoreNote releasehub-loadMoreError',
+            t('ErrorTitle')));
+        });
+      });
+
+      footer.appendChild(button);
+      footer.appendChild(el('div', 'releasehub-loadMoreNote secondaryText',
+        t('ShowingNextDays', loadedDays)));
+    }
+
+    // One request for the whole depth already reached, rather than one per window: this path only
+    // reads SQLite, so a wider single query is cheaper than replaying the pages one by one.
+    fetchPage(0, state.upcomingDays, false).then(function (response) {
+      clear(body);
+      body.appendChild(freshnessNote(response.LastSyncUtc, culture));
+
+      // An empty first window is not an empty year: the horizon reaches much further, so the control
+      // to look further stays, and this note steps aside as soon as anything arrives.
+      if (!response.added) {
+        emptyNote = emptyState('NoReleases', 'NoReleasesHint');
+        body.appendChild(emptyNote);
+      }
+
+      body.appendChild(stream);
+      body.appendChild(footer);
+      renderFooter();
     }, function () {
       clear(body);
       body.appendChild(errorState(function () { render(); }));
@@ -959,8 +1156,11 @@
         if (state.filter === 'anime') {
           return item.IsAnime;
         }
+        if (state.filter === 'movie') {
+          return item.Provider === 'Tmdb';
+        }
         if (state.filter === 'tv') {
-          return !item.IsAnime;
+          return !item.IsAnime && item.Provider !== 'Tmdb';
         }
         return true;
       });
@@ -991,12 +1191,12 @@
   }
 
   function followedCard(item, culture) {
-    var card = el('div', 'releasehub-card card');
+    var card = el('div', 'releasehub-card');
     card.appendChild(posterFor(item));
 
     var info = el('div', 'releasehub-cardInfo');
-    info.appendChild(el('div', 'releasehub-cardTitle cardText', item.Title));
-    info.appendChild(el('div', 'releasehub-cardSub cardText-secondary',
+    info.appendChild(el('div', 'releasehub-cardTitle', item.Title));
+    info.appendChild(el('div', 'releasehub-cardSub secondaryText',
       item.IsAnime ? t('Anime') : t('TvSeries')));
 
     var button = el('button', 'emby-button raised releasehub-cardAction');
@@ -1034,8 +1234,19 @@
     input.autocomplete = 'off';
     field.appendChild(input);
 
-    var spinner = el('span', 'releasehub-searchSpinner secondaryText');
-    field.appendChild(spinner);
+    // Clearing the field is our own button: the browser's native search-cancel control renders as a
+    // small blue cross that ignores the theme entirely.
+    var clearButton = el('button', 'paper-icon-button-light releasehub-searchClear');
+    clearButton.type = 'button';
+    clearButton.title = t('Clear');
+    clearButton.setAttribute('aria-label', t('Clear'));
+    clearButton.appendChild(icon('close'));
+    field.appendChild(clearButton);
+
+    // An indeterminate bar under the field, rather than a word at the far end of a very wide row
+    // where it went unnoticed. Hidden unless a request is actually in flight.
+    var progress = el('div', 'releasehub-searchProgress');
+    progress.appendChild(el('div', 'releasehub-searchProgressBar'));
 
     var results = el('div', 'releasehub-results');
 
@@ -1047,7 +1258,7 @@
       state.query = query;
 
       if (query.length < MIN_QUERY_LENGTH) {
-        spinner.textContent = '';
+        setBusy(false);
         clear(results);
         results.appendChild(emptyState('Search', 'SearchHint', 'search'));
         return;
@@ -1056,14 +1267,14 @@
       // Every keystroke that survives the debounce still races the previous one over the network;
       // the sequence number makes sure a slow earlier response cannot overwrite a newer one.
       var token = ++sequence;
-      spinner.textContent = t('Loading');
+      setBusy(true);
 
       apiGet('Discover/Search', { q: query, filter: state.filter }).then(function (items) {
         if (token !== sequence) {
           return;
         }
 
-        spinner.textContent = '';
+        setBusy(false);
         clear(results);
 
         if (!items.length) {
@@ -1080,7 +1291,7 @@
         if (token !== sequence) {
           return;
         }
-        spinner.textContent = '';
+        setBusy(false);
         clear(results);
         results.appendChild(errorState(runSearch));
       });
@@ -1093,7 +1304,26 @@
       timer = window.setTimeout(runSearch, SEARCH_DEBOUNCE_MS);
     }
 
-    input.addEventListener('input', scheduleSearch);
+    function setBusy(busy) {
+      progress.classList.toggle('releasehub-searchProgress-active', busy);
+    }
+
+    function syncClearButton() {
+      clearButton.classList.toggle('hide', input.value.length === 0);
+    }
+
+    clearButton.addEventListener('click', function () {
+      input.value = '';
+      syncClearButton();
+      window.clearTimeout(timer);
+      runSearch();
+      input.focus();
+    });
+
+    input.addEventListener('input', function () {
+      syncClearButton();
+      scheduleSearch();
+    });
     input.addEventListener('keydown', function (event) {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -1102,8 +1332,23 @@
       }
     });
 
-    body.appendChild(field);
+    // Placed on the filter row rather than on a row of its own: Discover already announces that this
+    // is a search view, so a full-width field below the chips only pushed the results further down.
+    var filterRow = state.container
+      ? state.container.querySelector('.releasehub-filters')
+      : null;
+
+    if (filterRow) {
+      field.classList.add('releasehub-searchField-inline');
+      filterRow.appendChild(field);
+      body.appendChild(progress);
+    } else {
+      body.appendChild(field);
+      body.appendChild(progress);
+    }
+
     body.appendChild(results);
+    syncClearButton();
 
     if (state.query.length >= MIN_QUERY_LENGTH) {
       runSearch();
@@ -1116,12 +1361,12 @@
   }
 
   function discoverCard(item, culture, onChanged) {
-    var card = el('div', 'releasehub-card releasehub-card-wide card');
+    var card = el('div', 'releasehub-card releasehub-card-wide');
     card.appendChild(posterFor(item));
 
     var info = el('div', 'releasehub-cardInfo');
 
-    var titleLine = el('div', 'releasehub-cardTitle cardText');
+    var titleLine = el('div', 'releasehub-cardTitle');
     titleLine.appendChild(el('span', null, item.Title));
     if (item.Year) {
       titleLine.appendChild(el('span', 'releasehub-cardYear secondaryText', String(item.Year)));
@@ -1129,7 +1374,7 @@
     info.appendChild(titleLine);
 
     if (item.OriginalTitle && item.OriginalTitle !== item.Title) {
-      info.appendChild(el('div', 'releasehub-cardOriginal cardText-secondary', item.OriginalTitle));
+      info.appendChild(el('div', 'releasehub-cardOriginal secondaryText', item.OriginalTitle));
     }
 
     var tags = el('div', 'releasehub-cardTags');
@@ -1142,15 +1387,17 @@
     if (item.Status) {
       tags.appendChild(badge(term('Status', item.Status), 'releasehub-badge-status'));
     }
-    tags.appendChild(badge(item.Provider === 'AnimeSchedule' ? t('ProviderAnimeSchedule') : t('ProviderTvMaze'),
-      'releasehub-badge-provider'));
+    var providerLabel = item.Provider === 'AnimeSchedule' ? t('ProviderAnimeSchedule')
+      : item.Provider === 'Tmdb' ? t('ProviderTmdb')
+        : t('ProviderTvMaze');
+    tags.appendChild(badge(providerLabel, 'releasehub-badge-provider'));
     info.appendChild(tags);
 
     if (item.Genres && item.Genres.length) {
       var genres = item.Genres.map(function (genre) {
         return term('Genre', genre);
       }).join(' · ');
-      info.appendChild(el('div', 'releasehub-cardGenres cardText-secondary', genres));
+      info.appendChild(el('div', 'releasehub-cardGenres secondaryText', genres));
     }
 
     if (item.Summary) {
@@ -1177,8 +1424,23 @@
 
   /* ----------------------------------------------------------- feedback */
 
-  function loadingNode() {
-    var box = el('div', 'releasehub-loading secondaryText', t('Loading'));
+  /**
+   * An indeterminate spinner drawn in CSS from currentColor.
+   *
+   * No image and no fixed colour, so it stays legible on every theme, and it honours
+   * prefers-reduced-motion in the stylesheet rather than spinning regardless.
+   */
+  function spinner() {
+    var node = el('span', 'releasehub-spinner');
+    node.setAttribute('aria-hidden', 'true');
+    return node;
+  }
+
+  function loadingNode(label) {
+    var box = el('div', 'releasehub-loading secondaryText');
+    box.setAttribute('role', 'status');
+    box.appendChild(spinner());
+    box.appendChild(el('span', null, label === undefined ? t('Loading') : label));
     return box;
   }
 
@@ -1198,16 +1460,47 @@
 
   function freshnessNote(lastSyncUtc, culture) {
     // Always visible, so cached data never silently passes for live data when a provider is down.
+    var wrapper = el('div', 'releasehub-freshnessBlock');
+
     var note = el('div', 'releasehub-freshness secondaryText');
     note.appendChild(icon('schedule'));
     note.appendChild(el('span', null, formatLastUpdated(lastSyncUtc, culture)));
-    return note;
+    wrapper.appendChild(note);
+
+    // A provider that failed is why entries may be missing. Saying so beats letting the calendar
+    // imply that nothing is scheduled.
+    var issues = state.status && state.status.LastSyncIssues;
+    if (issues && issues.length) {
+      var warning = el('div', 'releasehub-syncIssue secondaryText');
+      warning.appendChild(icon('warning'));
+      warning.appendChild(el('span', null, t('ProviderIssue', issues.join(' · '))));
+      wrapper.appendChild(warning);
+    }
+
+    return wrapper;
   }
 
   /* -------------------------------------------------------------- shell */
 
+  /** Idle time before a burst of week-arrow clicks is turned into a single fetch. */
+  var NAVIGATION_DEBOUNCE_MS = 180;
+  var navigationTimer = null;
+
+  /**
+   * Renders after a short pause, coalescing rapid navigation.
+   *
+   * Holding the week arrow previously fired one request per click — stepping through six months meant
+   * twenty-five round trips, of which only the last mattered. The reads are cache-only and cheap, but
+   * spending them is still pointless. The offset updates immediately; only the fetch waits.
+   */
+  function renderSoon() {
+    window.clearTimeout(navigationTimer);
+    navigationTimer = window.setTimeout(render, NAVIGATION_DEBOUNCE_MS);
+  }
+
   function setView(view) {
     state.view = view;
+    state.upcomingDays = UPCOMING_PAGE_DAYS;
     render();
   }
 
@@ -1238,24 +1531,31 @@
   }
 
   function attribution() {
-    // TVMaze is CC BY-SA and AnimeSchedule's terms require a visible credit, so this stays on screen
-    // rather than being tucked away in documentation.
+    // TVMaze is CC BY-SA, and both AnimeSchedule's and TMDb's terms require a visible credit, so this
+    // stays on screen rather than being tucked away in documentation.
     var box = el('div', 'releasehub-attribution secondaryText');
-    box.appendChild(el('span', null, t('SourceLabel') + ': '));
 
-    var tvmaze = el('a', 'button-link', 'TVMaze');
-    tvmaze.href = 'https://www.tvmaze.com/';
-    tvmaze.target = '_blank';
-    tvmaze.rel = 'noopener noreferrer';
-    box.appendChild(tvmaze);
+    // The colon lives in the translation, not here. French puts a narrow no-break space before it and
+    // English does not, so a colon appended in code can only ever be right in one language.
+    box.appendChild(el('span', null, t('SourceLabel') + ' '));
 
-    box.appendChild(el('span', null, ' · '));
+    var sources = [
+      { label: 'TVMaze', href: 'https://www.tvmaze.com/' },
+      { label: 'AnimeSchedule.net', href: 'https://animeschedule.net/' },
+      { label: 'TMDb', href: 'https://www.themoviedb.org/' }
+    ];
 
-    var animeschedule = el('a', 'button-link', 'AnimeSchedule.net');
-    animeschedule.href = 'https://animeschedule.net/';
-    animeschedule.target = '_blank';
-    animeschedule.rel = 'noopener noreferrer';
-    box.appendChild(animeschedule);
+    sources.forEach(function (source, index) {
+      if (index > 0) {
+        box.appendChild(el('span', null, ' · '));
+      }
+
+      var link = el('a', 'button-link', source.label);
+      link.href = source.href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      box.appendChild(link);
+    });
 
     return box;
   }

@@ -25,6 +25,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public const string ConfigPageName = "ReleaseHub";
 
     /// <summary>
+    /// Page name of the administrator page covering ReleaseHub's web-interface adjustments.
+    /// </summary>
+    public const string InterfacePageName = "ReleaseHubInterface";
+
+    /// <summary>
     /// Page name of the ReleaseHub application shell.
     /// </summary>
     public const string AppPageName = "releasehub-app";
@@ -64,7 +69,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <inheritdoc />
     public override string Description =>
-        "Unified TV series and anime release calendar, tracking and discovery for Jellyfin.";
+        "Unified TV series, anime and film release calendar, tracking and discovery for Jellyfin.";
 
     /// <summary>
     /// Gets the plugin configuration, falling back to defaults before the plugin has been constructed.
@@ -91,6 +96,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             EnableInMainMenu = true,
             MenuSection = "ReleaseHub",
             MenuIcon = "event"
+        };
+
+        // Reached from a link on the configuration page rather than from the dashboard menu: it is a
+        // continuation of those settings, not a second plugin, and a second menu entry named after the
+        // same plugin reads as one.
+        yield return new PluginPageInfo
+        {
+            Name = InterfacePageName,
+            DisplayName = "ReleaseHub — Web interface",
+            EmbeddedResourcePath = ResourcePrefix + "Configuration.interfacePage.html"
         };
 
         yield return new PluginPageInfo

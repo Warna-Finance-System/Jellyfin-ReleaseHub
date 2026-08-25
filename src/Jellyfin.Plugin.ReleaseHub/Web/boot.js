@@ -30,6 +30,7 @@
   var PAGE_ID = 'releaseHubUserPage';
   var CSS_ID = 'releasehub-css';
   var TITLE = 'ReleaseHub';
+  var CONFIG_PAGE = 'ReleaseHub';
 
   var isOpen = false;
   var appLoading = null;
@@ -95,8 +96,42 @@
    * theme rather than hardcoding a colour keeps that working on dark, light and third-party themes
    * alike.
    */
+  /** Whether a computed colour is opaque enough to paint over a backdrop. */
+  function isOpaque(colour) {
+    if (!colour || colour === 'transparent') {
+      return false;
+    }
+
+    var match = colour.match(/rgba?\(([^)]+)\)/);
+    if (!match) {
+      return false;
+    }
+
+    var parts = match[1].split(',');
+    // No alpha component means fully opaque; otherwise require near-full opacity.
+    return parts.length < 4 || parseFloat(parts[3]) > 0.95;
+  }
+
+  /**
+   * Reads an opaque background colour out of the active theme.
+   *
+   * ReleaseHub paints over the page it covers: the home view stays mounted underneath, and plugins
+   * such as a backdrop slideshow draw their own full-screen layers. Anything less than a fully opaque
+   * background lets them show through.
+   *
+   * The candidates are ordered from the most reliably solid surface downwards. `.mainDrawer` and
+   * `.dialog` are panels every theme paints; `.backgroundContainer` is listed too but is frequently
+   * transparent precisely when a backdrop is active, which is exactly when we need a colour.
+   */
   function themeBackground() {
-    var candidates = ['.backgroundContainer', '.mainAnimatedPages', 'body', 'html'];
+    var candidates = [
+      '.mainDrawer',
+      '.dialog',
+      '.skinHeader-withBackground',
+      '.backgroundContainer',
+      'body',
+      'html'
+    ];
 
     for (var i = 0; i < candidates.length; i++) {
       var node = document.querySelector(candidates[i]);
@@ -105,12 +140,23 @@
       }
 
       var colour = window.getComputedStyle(node).backgroundColor;
-      if (colour && colour !== 'transparent' && colour.indexOf('rgba(0, 0, 0, 0)') === -1) {
+      if (isOpaque(colour)) {
         return colour;
       }
     }
 
-    return null;
+    // Last resort: derive one from the text colour's luminance rather than hardcoding a theme's
+    // palette. A light-on-dark theme yields a near-black ground, a dark-on-light one a near-white.
+    var text = window.getComputedStyle(document.body).color;
+    var rgb = (text.match(/rgba?\(([^)]+)\)/) || [])[1];
+
+    if (rgb) {
+      var v = rgb.split(',').map(parseFloat);
+      var luminance = (0.299 * v[0]) + (0.587 * v[1]) + (0.114 * v[2]);
+      return luminance > 128 ? 'rgb(16, 16, 16)' : 'rgb(245, 245, 245)';
+    }
+
+    return 'rgb(16, 16, 16)';
   }
 
   function openReleaseHub(pushHistory) {
@@ -309,8 +355,79 @@
 
   /* ------------------------------------------------------------ scheduling */
 
+  /**
+   * Undoes the open state if our page has disappeared without closeReleaseHub() having run.
+   *
+   * Jellyfin's router navigates with history.pushState, which fires neither `hashchange` nor
+   * `popstate`, so leaving ReleaseHub by some routes never reaches our listeners. The page node is
+   * then discarded by Jellyfin's view manager while `body.releasehub-open` — and its
+   * `overflow: hidden` — stays behind, freezing scrolling across the whole web UI.
+   *
+   * Rather than trying to enumerate every way Jellyfin can navigate, this observes the outcome: the
+   * flag is only legitimate while our page is actually in the document.
+   */
+  function healStuckState() {
+    if (!document.body.classList.contains('releasehub-open')) {
+      return;
+    }
+
+    if (document.getElementById(PAGE_ID)) {
+      return;
+    }
+
+    isOpen = false;
+    document.body.classList.remove('releasehub-open');
+
+    var routed = hosts().routed;
+    if (routed) {
+      routed.style.display = '';
+    }
+  }
+
+  /* ------------------------------------------- dashboard drawer icon (admin) */
+
+  /**
+   * Replaces the generic plugin glyph beside ReleaseHub in the dashboard's left menu with a calendar.
+   *
+   * jellyfin-web 10.11 renders one hardcoded icon component for every plugin entry and ignores
+   * PluginPageInfo.MenuIcon entirely, so there is no server-side way to influence this. Purely
+   * cosmetic: if the markup ever changes, the entry simply keeps Jellyfin's default icon.
+   */
+  function patchDashboardIcon() {
+    var links = document.querySelectorAll('a[href*="configurationpage"]');
+
+    for (var i = 0; i < links.length; i++) {
+      var link = links[i];
+
+      if (link.getAttribute('data-releasehub-icon') === 'done') {
+        continue;
+      }
+
+      if ((link.getAttribute('href') || '').indexOf('name=' + CONFIG_PAGE) === -1) {
+        continue;
+      }
+
+      var holder = link.querySelector('[class*="MuiListItemIcon-root"]') || link;
+      var existing = holder.querySelector('svg');
+      if (!existing) {
+        continue;
+      }
+
+      var glyph = document.createElement('span');
+      glyph.className = 'material-icons';
+      glyph.setAttribute('aria-hidden', 'true');
+      glyph.textContent = 'calendar_month';
+      glyph.style.fontSize = '1.5rem';
+
+      existing.replaceWith(glyph);
+      link.setAttribute('data-releasehub-icon', 'done');
+    }
+  }
+
   function apply() {
     try {
+      healStuckState();
+      patchDashboardIcon();
       addDrawerEntry();
       addHeaderTab();
     } catch (error) {

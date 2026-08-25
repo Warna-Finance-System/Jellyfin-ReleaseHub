@@ -292,6 +292,21 @@ public sealed class FollowRequestDto
 }
 
 /// <summary>
+/// Optionally carries a candidate credential to test.
+/// </summary>
+/// <remarks>
+/// Travels from the browser to the server, which is the same direction a configuration save already
+/// takes. Nothing here is ever sent back to a client, and the value is not persisted.
+/// </remarks>
+public sealed class ProviderTestRequestDto
+{
+    /// <summary>
+    /// Gets or sets the credential to test instead of the stored one. Empty means "use what is saved".
+    /// </summary>
+    public string? ApiKey { get; set; }
+}
+
+/// <summary>
 /// Confirms which provider series a library item corresponds to.
 /// </summary>
 public sealed class ConfirmMatchRequestDto

@@ -587,6 +587,50 @@ public sealed class CacheService : IDisposable
     }
 
     /// <summary>
+    /// Records the provider problems seen during the last synchronization.
+    /// </summary>
+    /// <param name="issues">Human-readable messages, already stripped of anything sensitive.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task representing the operation.</returns>
+    public async Task SetLastSyncIssuesAsync(
+        IReadOnlyList<string> issues,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(issues);
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await SetMetaAsync(
+            connection,
+            "last_sync_issues",
+            JsonSerializer.Serialize(issues, SerializerOptions),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads the provider problems seen during the last synchronization.
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The messages, or an empty list.</returns>
+    public async Task<IReadOnlyList<string>> GetLastSyncIssuesAsync(CancellationToken cancellationToken)
+    {
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+
+        command.CommandText = "SELECT value FROM meta WHERE key = 'last_sync_issues';";
+        var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+
+        if (string.IsNullOrEmpty(value))
+        {
+            return [];
+        }
+
+        return JsonSerializer.Deserialize<List<string>>(value, SerializerOptions) ?? [];
+    }
+
+    /// <summary>
     /// Reads when a synchronization last completed.
     /// </summary>
     /// <param name="cancellationToken">The cancellation token.</param>

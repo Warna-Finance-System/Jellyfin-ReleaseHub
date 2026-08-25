@@ -211,6 +211,65 @@ public class ProviderMappingTests
     }
 
     [Fact]
+    public void AnimeSchedule_FilmIsNeverAPlausibleSeries()
+    {
+        // Jellyfin stores AniDB 411 on the One Piece *series*, but 411 is the 2000 film; the TV run
+        // is AniDB 69. Trusting the identifier alone mapped the series to a film with no broadcast
+        // schedule and silently emptied its calendar.
+        var film = new AnimeScheduleAnime
+        {
+            Route = "one-piece-movie",
+            MediaTypes = [new AnimeScheduleCategory { Name = "Movie", Route = "movie" }]
+        };
+
+        Assert.False(AnimeScheduleProvider.IsPlausibleSeries(film));
+    }
+
+    [Theory]
+    [InlineData("TV")]
+    [InlineData("ONA")]
+    [InlineData("OVA")]
+    [InlineData("Special")]
+    [InlineData("TV Short")]
+    public void AnimeSchedule_EpisodicMediaTypesStayPlausible(string mediaType)
+    {
+        // Only films are excluded. These are all legitimate ways an episodic release is catalogued,
+        // and rejecting them would lose real series.
+        var anime = new AnimeScheduleAnime
+        {
+            Route = "something",
+            MediaTypes = [new AnimeScheduleCategory { Name = mediaType }]
+        };
+
+        Assert.True(AnimeScheduleProvider.IsPlausibleSeries(anime));
+    }
+
+    [Fact]
+    public void AnimeSchedule_AbsentMediaTypesAreNotEvidence()
+    {
+        // Missing data must not be read as "this is a film".
+        Assert.True(AnimeScheduleProvider.IsPlausibleSeries(new AnimeScheduleAnime { Route = "x" }));
+        Assert.True(AnimeScheduleProvider.IsPlausibleSeries(
+            new AnimeScheduleAnime { Route = "x", MediaTypes = [] }));
+    }
+
+    [Fact]
+    public void AnimeSchedule_MixedMediaTypesStayPlausible()
+    {
+        var anime = new AnimeScheduleAnime
+        {
+            Route = "x",
+            MediaTypes =
+            [
+                new AnimeScheduleCategory { Name = "Movie" },
+                new AnimeScheduleCategory { Name = "TV" }
+            ]
+        };
+
+        Assert.True(AnimeScheduleProvider.IsPlausibleSeries(anime));
+    }
+
+    [Fact]
     public void AnimeSchedule_MissingWebsites_YieldNoIdentifiers()
     {
         Assert.Empty(AnimeScheduleProvider.ExtractExternalIds(null));

@@ -178,7 +178,15 @@ if ($imagePath) {
     $metaJson['imagePath'] = $imagePath
 }
 
-$metaJson | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $target 'meta.json') -Encoding UTF8
+# Written byte by byte rather than with Set-Content -Encoding UTF8, because that spelling means two
+# different things: no BOM under PowerShell 7, a BOM under Windows PowerShell 5.1. Jellyfin parses
+# meta.json with System.Text.Json, which rejects a BOM outright ("'0xEF' is an invalid start of a
+# value") and logs an error at every startup for a plugin it can then no longer read.
+$metaText = $metaJson | ConvertTo-Json -Depth 4
+[System.IO.File]::WriteAllText(
+    (Join-Path $target 'meta.json'),
+    $metaText,
+    (New-Object System.Text.UTF8Encoding($false)))
 
 Write-Host "Installed to $target" -ForegroundColor Green
 

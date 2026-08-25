@@ -6,13 +6,13 @@ targetAbi: "10.11.11.0"
 framework: "net9.0"
 # Shown as the plugin's developer in Jellyfin's plugin catalogue and details page.
 owner: "Warna"
-overview: "Unified TV series and anime release calendar for Jellyfin."
+overview: "Unified TV series, anime and film release calendar for Jellyfin."
 description: >
-  ReleaseHub adds a unified release calendar, tracking and discovery experience for TV series and
-  anime directly inside Jellyfin. It reads your existing libraries, resolves each series against
-  TVMaze or AnimeSchedule using the provider IDs Jellyfin already holds, and shows what airs next.
-  It never modifies, renames, moves or downloads any media, and requires no Sonarr, Radarr or other
-  external service.
+  ReleaseHub adds a unified release calendar, tracking and discovery experience for TV series, anime
+  and films directly inside Jellyfin. It reads your existing libraries, resolves each title against
+  TVMaze, AnimeSchedule or TMDb using the provider IDs Jellyfin already holds, and shows what airs or
+  releases next, including the next film of a saga you already own. It never modifies, renames, moves
+  or downloads any media, and requires no Sonarr, Radarr or other external service.
 category: "General"
 artifacts:
   - "Jellyfin.Plugin.ReleaseHub.dll"

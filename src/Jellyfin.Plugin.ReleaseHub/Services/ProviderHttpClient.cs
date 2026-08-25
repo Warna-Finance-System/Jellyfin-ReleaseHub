@@ -206,7 +206,10 @@ public sealed class ProviderHttpClient : IDisposable
                     // Retrying will not fix a bad credential, and hammering an auth endpoint is rude.
                     throw new ProviderUnavailableException(
                         _providerName,
-                        $"{_providerName} rejected the request ({(int)response.StatusCode}). Check the API key.");
+                        $"{_providerName} rejected the request ({(int)response.StatusCode}). Check the API key.")
+                    {
+                        IsAuthenticationFailure = true
+                    };
                 }
 
                 if ((int)response.StatusCode >= 500)

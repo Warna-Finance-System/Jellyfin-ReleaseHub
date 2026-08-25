@@ -59,6 +59,35 @@
     .rhPendingTitle { flex: 1 1 14em; min-width: 0; font-weight: 500; }
     .rhPendingCandidate { flex: 1 1 16em; min-width: 0; font-size: 0.9em; opacity: 0.8; }
     .rhEmptyNote { padding: 1.5em; text-align: center; opacity: 0.65; }
+    /* Reveal button overlaid inside the field, the way a password input is normally built, rather
+       than sitting beside it. The wrapper only positions; the input keeps Jellyfin's own .emby-input
+       styling so the field still follows the active theme. */
+    .rhKeyRow { position: relative; display: block; }
+    .rhKeyRow .emby-input {
+      width: 100%;
+      /* Room for the button so a long key never runs underneath it. */
+      padding-right: 2.8em;
+    }
+    .rhKeyToggle {
+      position: absolute;
+      right: 0.5em;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.9em;
+      height: 1.9em;
+      border: none;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      padding: 0;
+      border-radius: 50%;
+      opacity: 0.6;
+    }
+    .rhKeyToggle:hover { opacity: 1; background: rgba(127, 127, 127, 0.2); }
+    .rhKeyToggle .material-icons { font-size: 1.25em; }
   </style>
 </head>
 <body>
@@ -77,6 +106,10 @@
          class="raised button-submit block emby-button" style="margin-top:1em;">
         <span>Open ReleaseHub</span>
       </a>
+      <a is="emby-linkbutton" href="#/configurationpage?name=ReleaseHubInterface"
+         class="raised block emby-button" style="margin-top:0.6em;">
+        <span>Web interface adjustments</span>
+      </a>
     </div>
 
     <div id="releaseHubTabNotice" class="infoBanner hide" style="margin-top:1.5em;"></div>
@@ -86,6 +119,7 @@
       <h2 class="sectionTitle">Status</h2>
 
       <div id="rhStatusGrid" class="rhStatusGrid"></div>
+      <div id="rhSyncIssues" class="infoBanner hide" style="margin-bottom:1em;"></div>
 
       <div class="rhButtonRow">
         <button is="emby-button" type="button" id="rhSyncNow" class="raised button-submit emby-button">
@@ -145,6 +179,11 @@
           <input is="emby-checkbox" type="checkbox" id="rhEnableAnime" />
           <span>Enable anime</span>
         </label>
+
+        <label class="checkboxContainer">
+          <input is="emby-checkbox" type="checkbox" id="rhEnableMovies" />
+          <span>Enable movies</span>
+        </label>
       </div>
 
       <!-- ===================== Providers ===================== -->
@@ -161,7 +200,7 @@
 
           <div class="inputContainer">
             <label class="inputLabel inputLabelUnfocused" for="rhTvMazeBaseUrl">Base URL</label>
-            <input is="emby-input" type="url" id="rhTvMazeBaseUrl" class="emby-input" />
+            <input type="url" id="rhTvMazeBaseUrl" class="emby-input" />
             <div class="fieldDescription">
               Default: https://api.tvmaze.com — TVMaze needs no API key for public use. This field
               exists only so the endpoint can be changed if TVMaze ever relocates it.
@@ -179,24 +218,91 @@
 
           <div class="inputContainer">
             <label class="inputLabel inputLabelUnfocused" for="rhAnimeScheduleBaseUrl">Base URL</label>
-            <input is="emby-input" type="url" id="rhAnimeScheduleBaseUrl" class="emby-input" />
+            <input type="url" id="rhAnimeScheduleBaseUrl" class="emby-input" />
             <div class="fieldDescription">Default: https://animeschedule.net/api/v3</div>
           </div>
 
           <div class="inputContainer">
             <label class="inputLabel inputLabelUnfocused" for="rhAnimeScheduleApiKey">API key</label>
-            <input is="emby-input" type="password" id="rhAnimeScheduleApiKey" class="emby-input"
-                   autocomplete="off" spellcheck="false" />
+            <div class="rhKeyRow">
+              <input type="password" id="rhAnimeScheduleApiKey" class="emby-input"
+                     autocomplete="off" spellcheck="false" />
+              <button is="paper-icon-button-light" type="button" id="rhToggleApiKey"
+                      class="paper-icon-button-light rhKeyToggle" title="Show the key">
+                <span class="material-icons" aria-hidden="true">visibility</span>
+              </button>
+            </div>
             <div class="fieldDescription" id="rhApiKeyState"></div>
             <div class="fieldDescription">
-              Stored server-side and never sent to a browser. Leave blank to keep the saved key.
+              Create one from an Application in your animeschedule.net account settings, under the API
+              tab. It is stored on the server and is never exposed to non-administrator users.
+              Clearing this field and saving removes the key.
             </div>
           </div>
 
           <button is="emby-button" type="button" id="rhTestAnimeSchedule" class="raised block emby-button">
             <span>Test connection</span>
           </button>
+          <div class="fieldDescription">
+            Tests whatever the field currently holds, so a key can be checked before it is saved.
+          </div>
           <div class="fieldDescription" id="rhTestResult"></div>
+        </fieldset>
+
+        <fieldset class="verticalSection-extrabottompadding">
+          <legend class="sectionTitle sectionTitle-cards">TMDb (films)</legend>
+
+          <label class="checkboxContainer">
+            <input is="emby-checkbox" type="checkbox" id="rhTmdbEnabled" />
+            <span>Enabled</span>
+          </label>
+
+          <label class="checkboxContainer">
+            <input is="emby-checkbox" type="checkbox" id="rhTrackMovieCollections" />
+            <span>Follow film collections</span>
+          </label>
+          <div class="fieldDescription">
+            Owning one film of a saga surfaces that saga&#39;s unreleased entries. This is the only
+            place ReleaseHub looks beyond the exact items in your library.
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="rhTmdbBaseUrl">Base URL</label>
+            <input type="url" id="rhTmdbBaseUrl" class="emby-input" />
+            <div class="fieldDescription">Default: https://api.themoviedb.org/3</div>
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="rhTmdbImageBaseUrl">Image base URL</label>
+            <input type="url" id="rhTmdbImageBaseUrl" class="emby-input" />
+            <div class="fieldDescription">
+              Default: https://image.tmdb.org/t/p/w500 &mdash; TMDb returns bare image paths, and the
+              size segment at the end of this URL decides the resolution ReleaseHub requests.
+            </div>
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="rhTmdbApiKey">API read access token</label>
+            <div class="rhKeyRow">
+              <input type="password" id="rhTmdbApiKey" class="emby-input"
+                     autocomplete="off" spellcheck="false" />
+              <button is="paper-icon-button-light" type="button" id="rhToggleTmdbKey"
+                      class="paper-icon-button-light rhKeyToggle" title="Show the token">
+                <span class="material-icons" aria-hidden="true">visibility</span>
+              </button>
+            </div>
+            <div class="fieldDescription" id="rhTmdbKeyState"></div>
+            <div class="fieldDescription">
+              This is the <strong>API Read Access Token</strong> from your themoviedb.org account&#39;s
+              API settings &mdash; the long v4 token, not the shorter v3 key. Stored on the server and
+              never exposed to non-administrator users.
+            </div>
+          </div>
+
+          <button is="emby-button" type="button" id="rhTestTmdb" class="raised block emby-button">
+            <span>Test connection</span>
+          </button>
+          <div class="fieldDescription" id="rhTmdbTestResult"></div>
         </fieldset>
       </div>
 
@@ -218,17 +324,17 @@
 
         <div class="inputContainer">
           <label class="inputLabel inputLabelUnfocused" for="rhSeriesCacheHours">Series metadata cache (hours)</label>
-          <input is="emby-input" type="number" id="rhSeriesCacheHours" class="emby-input" min="1" max="720" />
+          <input type="number" id="rhSeriesCacheHours" class="emby-input" min="1" max="720" />
         </div>
 
         <div class="inputContainer">
           <label class="inputLabel inputLabelUnfocused" for="rhReleaseCacheHours">Release data cache (hours)</label>
-          <input is="emby-input" type="number" id="rhReleaseCacheHours" class="emby-input" min="1" max="168" />
+          <input type="number" id="rhReleaseCacheHours" class="emby-input" min="1" max="168" />
         </div>
 
         <div class="inputContainer">
           <label class="inputLabel inputLabelUnfocused" for="rhMaxRequests">Maximum requests per synchronization</label>
-          <input is="emby-input" type="number" id="rhMaxRequests" class="emby-input" min="10" max="10000" />
+          <input type="number" id="rhMaxRequests" class="emby-input" min="10" max="10000" />
           <div class="fieldDescription">
             A hard ceiling on outbound provider calls per run, on top of the per-provider rate limiter.
           </div>
@@ -246,12 +352,12 @@
 
         <div class="inputContainer">
           <label class="inputLabel inputLabelUnfocused" for="rhImageCacheSize">Cache size limit (MB)</label>
-          <input is="emby-input" type="number" id="rhImageCacheSize" class="emby-input" min="16" max="4096" />
+          <input type="number" id="rhImageCacheSize" class="emby-input" min="16" max="4096" />
         </div>
 
         <div class="inputContainer">
           <label class="inputLabel inputLabelUnfocused" for="rhImageCacheDays">Cache expiration (days)</label>
-          <input is="emby-input" type="number" id="rhImageCacheDays" class="emby-input" min="1" max="365" />
+          <input type="number" id="rhImageCacheDays" class="emby-input" min="1" max="365" />
           <div class="fieldDescription">
             Images already held by Jellyfin are reused directly; only provider images for items outside
             your library are cached, and never written into your media folders.
@@ -284,8 +390,13 @@
         rel="noopener noreferrer" href="https://www.tvmaze.com/">TVMaze</a>, licensed under CC BY-SA.
         Anime schedule data provided by <a is="emby-linkbutton" class="button-link" target="_blank"
         rel="noopener noreferrer" href="https://animeschedule.net/">AnimeSchedule</a>.
-        ReleaseHub is not affiliated with or endorsed by Jellyfin, TVMaze, AnimeSchedule, IMDb, TMDb,
-        TVDB, AniDB or AniList.
+        Film data provided by <a is="emby-linkbutton" class="button-link" target="_blank"
+        rel="noopener noreferrer" href="https://www.themoviedb.org/">TMDb</a>.
+      </p>
+      <p class="fieldDescription">
+        This product uses the TMDb API but is not endorsed or certified by TMDb. ReleaseHub is not
+        affiliated with or endorsed by Jellyfin, TVMaze, AnimeSchedule, TMDb, IMDb, TVDB, AniDB or
+        AniList.
       </p>
     </div>
 
@@ -308,14 +419,26 @@
           $('rhCalendarRange').value = String(config.DefaultCalendarRangeDays || 7);
           $('rhEnableTvSeries').checked = !!config.EnableTvSeries;
           $('rhEnableAnime').checked = !!config.EnableAnime;
+          $('rhEnableMovies').checked = !!config.EnableMovies;
+
+          $('rhTmdbEnabled').checked = !!config.TmdbEnabled;
+          $('rhTrackMovieCollections').checked = !!config.TrackMovieCollections;
+          $('rhTmdbBaseUrl').value = config.TmdbBaseUrl || '';
+          $('rhTmdbImageBaseUrl').value = config.TmdbImageBaseUrl || '';
+          $('rhTmdbApiKey').value = config.TmdbApiKey || '';
 
           $('rhTvMazeEnabled').checked = !!config.TvMazeEnabled;
           $('rhTvMazeBaseUrl').value = config.TvMazeBaseUrl || '';
 
           $('rhAnimeScheduleEnabled').checked = !!config.AnimeScheduleEnabled;
           $('rhAnimeScheduleBaseUrl').value = config.AnimeScheduleBaseUrl || '';
-          // The key itself is never returned by the API; only whether one is stored.
-          $('rhAnimeScheduleApiKey').value = '';
+
+          // Shown so an administrator can read back and copy the key they configured. This is not a
+          // widening of access: Jellyfin's own GET /Plugins/{id}/Configuration — which this very page
+          // just called — is administrator-only and already returns the whole configuration, key
+          // included. The boundary that matters is ReleaseHub's own API, which is reachable by every
+          // signed-in user and only ever reports whether a key exists.
+          $('rhAnimeScheduleApiKey').value = config.AnimeScheduleApiKey || '';
 
           $('rhRefreshInterval').value = String(config.RefreshIntervalHours);
           $('rhSeriesCacheHours').value = config.SeriesCacheHours;
@@ -365,6 +488,10 @@
             ? 'A key is currently stored.'
             : 'No key stored yet.';
 
+          $('rhTmdbKeyState').textContent = status.TmdbApiKeyConfigured
+            ? 'A token is currently stored.'
+            : 'No token stored yet.';
+
           var grid = $('rhStatusGrid');
           grid.innerHTML = '';
           grid.appendChild(statusCard('Version', status.Version));
@@ -383,9 +510,25 @@
               : (status.AnimeScheduleApiKeyConfigured ? 'Disabled' : 'No API key'),
             status.AnimeScheduleAvailable));
           grid.appendChild(statusCard(
+            'TMDb',
+            status.TmdbAvailable
+              ? 'Active'
+              : (status.TmdbApiKeyConfigured ? 'Disabled' : 'No token'),
+            status.TmdbAvailable));
+          grid.appendChild(statusCard(
             'User menu entry',
             status.UserTabAvailable ? 'Available to all users' : 'Dashboard only',
             status.UserTabAvailable));
+
+          var issues = $('rhSyncIssues');
+          if (status.LastSyncIssues && status.LastSyncIssues.length) {
+            issues.classList.remove('hide');
+            issues.textContent = 'Last synchronization reported: '
+              + status.LastSyncIssues.join(' · ')
+              + ' — affected series keep whatever was already cached.';
+          } else {
+            issues.classList.add('hide');
+          }
 
           var notice = $('releaseHubTabNotice');
           if (status.UserTabAvailable) {
@@ -494,6 +637,13 @@
           config.DefaultCalendarRangeDays = parseInt($('rhCalendarRange').value, 10);
           config.EnableTvSeries = $('rhEnableTvSeries').checked;
           config.EnableAnime = $('rhEnableAnime').checked;
+          config.EnableMovies = $('rhEnableMovies').checked;
+
+          config.TmdbEnabled = $('rhTmdbEnabled').checked;
+          config.TrackMovieCollections = $('rhTrackMovieCollections').checked;
+          config.TmdbBaseUrl = $('rhTmdbBaseUrl').value.trim();
+          config.TmdbImageBaseUrl = $('rhTmdbImageBaseUrl').value.trim();
+          config.TmdbApiKey = $('rhTmdbApiKey').value.trim();
 
           config.TvMazeEnabled = $('rhTvMazeEnabled').checked;
           config.TvMazeBaseUrl = $('rhTvMazeBaseUrl').value.trim();
@@ -501,11 +651,9 @@
           config.AnimeScheduleEnabled = $('rhAnimeScheduleEnabled').checked;
           config.AnimeScheduleBaseUrl = $('rhAnimeScheduleBaseUrl').value.trim();
 
-          // An empty field means "keep what is stored" so that saving the page never wipes the key.
-          var typedKey = $('rhAnimeScheduleApiKey').value;
-          if (typedKey) {
-            config.AnimeScheduleApiKey = typedKey;
-          }
+          // The field is prefilled with the stored key, so what it holds is authoritative: saving an
+          // emptied field is a deliberate request to clear the credential.
+          config.AnimeScheduleApiKey = $('rhAnimeScheduleApiKey').value.trim();
 
           config.RefreshIntervalHours = parseInt($('rhRefreshInterval').value, 10);
           config.SeriesCacheHours = parseInt($('rhSeriesCacheHours').value, 10);
@@ -528,17 +676,33 @@
         return false;
       }
 
-      function testConnection() {
-        var result = $('rhTestResult');
+      // Shared by every credential field: the behaviour is identical, only the elements differ.
+      function toggleSecretVisibility(inputId, buttonId) {
+        var input = $(inputId);
+        var button = $(buttonId);
+        var glyph = button.querySelector('.material-icons');
+        var hidden = input.type === 'password';
+
+        input.type = hidden ? 'text' : 'password';
+        glyph.textContent = hidden ? 'visibility_off' : 'visibility';
+        button.title = hidden ? 'Hide' : 'Show';
+      }
+
+      // Send whatever is currently typed so a credential can be verified *before* it replaces a
+      // working one. An empty field means "test what is already saved on the server".
+      function testConnection(provider, keyInputId, resultId) {
+        var result = $(resultId);
         result.textContent = 'Testing…';
 
         ApiClient.ajax({
           type: 'POST',
-          url: ApiClient.getUrl('ReleaseHub/Providers/AnimeSchedule/Test'),
+          url: ApiClient.getUrl('ReleaseHub/Providers/' + provider + '/Test'),
+          data: JSON.stringify({ ApiKey: $(keyInputId).value.trim() }),
+          contentType: 'application/json',
           dataType: 'json'
         }).then(function (response) {
           result.textContent = response.Success
-            ? 'Connection succeeded.'
+            ? response.Message
             : 'Connection failed: ' + response.Message;
         }, function () {
           result.textContent = 'Connection failed.';
@@ -556,9 +720,20 @@
           if (!bound) {
             bound = true;
             page.querySelector('.releaseHubConfigForm').addEventListener('submit', save);
-            page.querySelector('#rhTestAnimeSchedule').addEventListener('click', testConnection);
+            page.querySelector('#rhTestAnimeSchedule').addEventListener('click', function () {
+              testConnection('AnimeSchedule', 'rhAnimeScheduleApiKey', 'rhTestResult');
+            });
+            page.querySelector('#rhTestTmdb').addEventListener('click', function () {
+              testConnection('Tmdb', 'rhTmdbApiKey', 'rhTmdbTestResult');
+            });
             page.querySelector('#rhSyncNow').addEventListener('click', synchronizeNow);
             page.querySelector('#rhRefreshStatus').addEventListener('click', loadStatus);
+            page.querySelector('#rhToggleApiKey').addEventListener('click', function () {
+              toggleSecretVisibility('rhAnimeScheduleApiKey', 'rhToggleApiKey');
+            });
+            page.querySelector('#rhToggleTmdbKey').addEventListener('click', function () {
+              toggleSecretVisibility('rhTmdbApiKey', 'rhToggleTmdbKey');
+            });
           }
 
           load();

@@ -84,6 +84,16 @@ public sealed partial class AnimeScheduleProvider : IReleaseProvider, IDisposabl
     /// </remarks>
     public bool SupportsBulkSchedule => true;
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// Twenty-six weeks, which is twenty-six requests per synchronization. AnimeSchedule is the one
+    /// provider whose cost scales with the window, and its timetable simply does not reach a year out:
+    /// seasons are announced roughly a quarter ahead, so the weeks past this point would cost a request
+    /// each to return nothing. The rest of the horizon is still covered — by the providers it costs
+    /// nothing to ask.
+    /// </remarks>
+    public TimeSpan? MaxLookAhead => TimeSpan.FromDays(182);
+
     /// <summary>
     /// Gets the number of requests this provider has issued since the server started.
     /// </summary>
@@ -172,10 +182,48 @@ public sealed partial class AnimeScheduleProvider : IReleaseProvider, IDisposabl
                 .GetJsonAsync<AnimeSchedulePage>(url, Authorize, cancellationToken)
                 .ConfigureAwait(false);
 
-            // An id filter matches at most one anime, so the first result is the answer.
+            // Verify rather than assume. The id filter is not guaranteed to return exactly one anime —
+            // a franchise's movies and spin-offs come back alongside the series, ordered by
+            // popularity — so taking the first result blindly is how a library's "One Piece" ends up
+            // mapped to "one-piece-movie" and its calendar silently empties. Only a candidate that
+            // actually carries the identifier we searched for is an exact match.
             if (page?.Anime is { Count: > 0 } hits)
             {
-                return new ProviderMatch(Map(hits[0]), MatchConfidence.Exact, $"{key} id match");
+                foreach (var candidate in hits)
+                {
+                    var ids = ExtractExternalIds(candidate.Websites);
+                    if (!ids.TryGetValue(key, out var found)
+                        || !string.Equals(found, value, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    // An identifier can be right and still point at the wrong thing. Jellyfin's
+                    // metadata for a series sometimes carries a film's id from the same franchise —
+                    // One Piece is stored with AniDB 411, which is the 2000 movie, while the TV run
+                    // is AniDB 69. Accepting it produced a confident mapping to a film that has no
+                    // broadcast schedule, silently emptying that series' calendar. A film can never
+                    // be the match for a series, whatever the id says.
+                    if (!IsPlausibleSeries(candidate))
+                    {
+                        _logger.LogDebug(
+                            "AnimeSchedule {Route} matches {Key} {Value} but is a film, not a series; "
+                            + "ignoring it and trying the next identifier",
+                            candidate.Route,
+                            key,
+                            value);
+                        continue;
+                    }
+
+                    return new ProviderMatch(Map(candidate), MatchConfidence.Exact, $"{key} id match");
+                }
+
+                _logger.LogDebug(
+                    "AnimeSchedule returned {Count} result(s) for {Key} {Value} but none carried that id back; "
+                    + "falling through to title matching",
+                    hits.Count,
+                    key,
+                    value);
             }
         }
 
@@ -192,6 +240,38 @@ public sealed partial class AnimeScheduleProvider : IReleaseProvider, IDisposabl
         // is often the one that lands.
         var byOriginal = await SearchAsync(identity.OriginalTitle, 15, cancellationToken).ConfigureAwait(false);
         return SeriesMatcher.PickBest(identity, byOriginal);
+    }
+
+    /// <summary>
+    /// Decides whether an AnimeSchedule entry could be the ongoing run of a series.
+    /// </summary>
+    /// <param name="anime">The candidate.</param>
+    /// <returns><see langword="false"/> when the entry is only ever a film.</returns>
+    /// <remarks>
+    /// Deliberately narrow: only entries whose media types are exclusively films are rejected. ONA,
+    /// OVA, Special and TV Short are all legitimate ways an episodic release is catalogued, and
+    /// excluding them would lose real series. An entry with no media types at all is kept, because
+    /// absent data is not evidence.
+    /// </remarks>
+    internal static bool IsPlausibleSeries(AnimeScheduleAnime anime)
+    {
+        ArgumentNullException.ThrowIfNull(anime);
+
+        var types = anime.MediaTypes;
+        if (types is null || types.Count == 0)
+        {
+            return true;
+        }
+
+        foreach (var type in types)
+        {
+            if (!string.Equals(type.Name, "Movie", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -282,16 +362,17 @@ public sealed partial class AnimeScheduleProvider : IReleaseProvider, IDisposabl
     }
 
     /// <inheritdoc />
-    public async Task<ProviderTestResult> TestConnectionAsync(CancellationToken cancellationToken)
+    public async Task<ProviderTestResult> TestConnectionAsync(
+        string? credentialOverride,
+        CancellationToken cancellationToken)
     {
-        var config = Plugin.Config;
+        // Testing a key typed into the settings page but not yet saved is the whole point: it lets an
+        // administrator confirm a key before replacing a working one. The override is never persisted.
+        var key = string.IsNullOrWhiteSpace(credentialOverride)
+            ? Plugin.Config.AnimeScheduleApiKey
+            : credentialOverride;
 
-        if (!config.AnimeScheduleEnabled)
-        {
-            return ProviderTestResult.Fail("AnimeSchedule is disabled.");
-        }
-
-        if (string.IsNullOrWhiteSpace(config.AnimeScheduleApiKey))
+        if (string.IsNullOrWhiteSpace(key))
         {
             return ProviderTestResult.Fail("No AnimeSchedule API key is configured.");
         }
@@ -306,15 +387,26 @@ public sealed partial class AnimeScheduleProvider : IReleaseProvider, IDisposabl
                 ("tz", "UTC"));
 
             var entries = await _http
-                .GetJsonAsync<List<AnimeScheduleTimetableEntry>>(url, Authorize, cancellationToken)
+                .GetJsonAsync<List<AnimeScheduleTimetableEntry>>(
+                    url,
+                    request => request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key),
+                    cancellationToken)
                 .ConfigureAwait(false);
 
-            return entries is null
-                ? ProviderTestResult.Fail("AnimeSchedule responded but returned no data.")
-                : ProviderTestResult.Ok(
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"AnimeSchedule reachable; {entries.Count} entries this week."));
+            if (entries is null)
+            {
+                return ProviderTestResult.Fail("AnimeSchedule responded but returned no data.");
+            }
+
+            var message = string.Create(
+                CultureInfo.InvariantCulture,
+                $"AnimeSchedule reachable; {entries.Count} entries scheduled this week.");
+
+            // Reaching the API is only half the story: with the provider switched off nothing will be
+            // fetched, and an administrator who just validated a key deserves to be told that.
+            return Plugin.Config.AnimeScheduleEnabled
+                ? ProviderTestResult.Ok(message)
+                : ProviderTestResult.Ok(message + " Tick \"Enabled\" and save to start using it.");
         }
         catch (ProviderUnavailableException ex)
         {

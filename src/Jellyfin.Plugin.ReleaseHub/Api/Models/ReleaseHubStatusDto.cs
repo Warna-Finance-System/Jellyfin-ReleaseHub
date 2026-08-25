@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Jellyfin.Plugin.ReleaseHub.Api.Models;
 
@@ -39,6 +40,21 @@ public sealed class ReleaseHubStatusDto
     public bool AnimeScheduleAvailable { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether the TMDb provider is usable.
+    /// </summary>
+    public bool TmdbAvailable { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a TMDb token is stored on the server.
+    /// </summary>
+    public bool TmdbApiKeyConfigured { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether film content is shown.
+    /// </summary>
+    public bool MoviesEnabled { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether anime content is shown.
     /// </summary>
     public bool AnimeEnabled { get; set; }
@@ -54,6 +70,16 @@ public sealed class ReleaseHubStatusDto
     public int DefaultCalendarRangeDays { get; set; }
 
     /// <summary>
+    /// Gets or sets how many days ahead the cache can hold data for.
+    /// </summary>
+    /// <remarks>
+    /// The client stops offering "load more" here. Past this point a synchronization has never fetched
+    /// anything, so an empty result would say "nothing is scheduled" when it means "nothing was looked
+    /// up".
+    /// </remarks>
+    public int HorizonDays { get; set; }
+
+    /// <summary>
     /// Gets or sets the configured UI language, or an empty string to follow the client.
     /// </summary>
     public string Language { get; set; } = string.Empty;
@@ -62,4 +88,13 @@ public sealed class ReleaseHubStatusDto
     /// Gets or sets when release data was last refreshed, or <see langword="null"/> if never.
     /// </summary>
     public DateTime? LastSyncUtc { get; set; }
+
+    /// <summary>
+    /// Gets or sets the provider problems seen during the last synchronization.
+    /// </summary>
+    /// <remarks>
+    /// Surfaced so that a rejected credential or an outage reads as a provider problem rather than as
+    /// "nothing is airing". Messages carry a status code, never a credential.
+    /// </remarks>
+    public IReadOnlyList<string> LastSyncIssues { get; set; } = [];
 }

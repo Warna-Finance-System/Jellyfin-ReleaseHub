@@ -91,11 +91,17 @@ public class ReleaseHubController : ControllerBase
             UserTabAvailable = FileTransformationHook.IsUserTabAvailable,
             TvMazeAvailable = config.TvMazeEnabled && config.EnableTvSeries,
             AnimeScheduleAvailable = config.AnimeScheduleEnabled && config.EnableAnime && hasAnimeKey,
+            TmdbAvailable = config.TmdbEnabled && config.EnableMovies
+                && !string.IsNullOrWhiteSpace(config.TmdbApiKey),
+            TmdbApiKeyConfigured = !string.IsNullOrWhiteSpace(config.TmdbApiKey),
+            MoviesEnabled = config.EnableMovies,
             AnimeEnabled = config.EnableAnime,
             TvSeriesEnabled = config.EnableTvSeries,
             DefaultCalendarRangeDays = config.DefaultCalendarRangeDays,
+            HorizonDays = ReleaseService.HorizonDays,
             Language = config.Language,
-            LastSyncUtc = await _cache.GetLastSyncAsync(cancellationToken).ConfigureAwait(false)
+            LastSyncUtc = await _cache.GetLastSyncAsync(cancellationToken).ConfigureAwait(false),
+            LastSyncIssues = await _cache.GetLastSyncIssuesAsync(cancellationToken).ConfigureAwait(false)
         };
     }
 
@@ -126,7 +132,7 @@ public class ReleaseHubController : ControllerBase
 
         // Bounded to the window a synchronization actually fills, so paging past the cached horizon
         // returns an honest empty week instead of pretending nothing airs.
-        offset = Math.Clamp(offset, -7, 92);
+        offset = Math.Clamp(offset, -7, ReleaseService.HorizonDays);
 
         // Start from midnight UTC so that "today" is complete rather than starting at the current hour.
         var fromUtc = DateTime.UtcNow.Date.AddDays(offset);
@@ -149,22 +155,43 @@ public class ReleaseHubController : ControllerBase
     /// <summary>
     /// Gets the next releases as a flat, compact list.
     /// </summary>
-    /// <param name="filter">One of <c>all</c>, <c>anime</c> or <c>tv</c>.</param>
+    /// <param name="days">
+    /// How many days of window to include. Defaults to 60 and is capped at what remains of the
+    /// synchronization horizon after <paramref name="offset"/>.
+    /// </param>
+    /// <param name="offset">
+    /// How many days after today the window starts. Lets the client fetch only the slice it does not
+    /// already have instead of re-requesting everything it is already showing.
+    /// </param>
+    /// <param name="filter">One of <c>all</c>, <c>anime</c>, <c>tv</c> or <c>movie</c>.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <response code="200">Upcoming releases returned.</response>
     /// <returns>The releases, in chronological order.</returns>
     /// <remarks>
     /// Returned flat rather than pre-grouped into Today/Tomorrow/This week/Later: those buckets depend
     /// on the viewer's own timezone, which only the browser knows.
+    ///
+    /// Widening the window costs nothing beyond a larger SQLite read — this path never contacts a
+    /// provider — but it is still capped at the horizon a synchronization actually fills, because
+    /// beyond that an empty answer would mean "not looked up", not "nothing scheduled".
     /// </remarks>
     [HttpGet("Upcoming")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<CalendarResponseDto>> GetUpcoming(
+        [FromQuery] int days,
+        [FromQuery] int offset,
         [FromQuery] string? filter,
         CancellationToken cancellationToken)
     {
-        var fromUtc = DateTime.UtcNow.Date;
-        var toUtc = fromUtc.AddDays(60).AddTicks(-1);
+        var horizon = ReleaseService.HorizonDays;
+
+        // One day short of the horizon, so that a window of at least one day always remains: a start
+        // exactly on the horizon would otherwise clamp the range to zero.
+        var start = Math.Clamp(offset, 0, horizon - 1);
+        var range = Math.Clamp(days <= 0 ? 60 : days, 1, horizon - start);
+
+        var fromUtc = DateTime.UtcNow.Date.AddDays(start);
+        var toUtc = fromUtc.AddDays(range).AddTicks(-1);
 
         var releases = await _releaseService
             .GetCalendarAsync(GetUserId(), fromUtc, toUtc, cancellationToken)
@@ -174,7 +201,7 @@ public class ReleaseHubController : ControllerBase
         {
             FromUtc = fromUtc,
             ToUtc = toUtc,
-            RangeDays = 60,
+            RangeDays = range,
             LastSyncUtc = await _cache.GetLastSyncAsync(cancellationToken).ConfigureAwait(false),
             Items = Filter(releases, filter).Select(ReleaseItemDto.From).ToList()
         };
@@ -201,11 +228,20 @@ public class ReleaseHubController : ControllerBase
         }
 
         var config = Plugin.Config;
-        var wantsAnime = config.EnableAnime && !string.Equals(filter, "tv", StringComparison.OrdinalIgnoreCase);
-        var wantsTv = config.EnableTvSeries && !string.Equals(filter, "anime", StringComparison.OrdinalIgnoreCase);
+        var scoped = !string.IsNullOrWhiteSpace(filter)
+            && !string.Equals(filter, "all", StringComparison.OrdinalIgnoreCase);
+
+        bool Wanted(string kind) =>
+            !scoped || string.Equals(filter, kind, StringComparison.OrdinalIgnoreCase);
 
         var results = await _releaseService
-            .SearchAsync(GetUserId(), q, wantsAnime, wantsTv, cancellationToken)
+            .SearchAsync(
+                GetUserId(),
+                q,
+                config.EnableAnime && Wanted("anime"),
+                config.EnableTvSeries && Wanted("tv"),
+                config.EnableMovies && Wanted("movie"),
+                cancellationToken)
             .ConfigureAwait(false);
 
         return results.Select(DiscoverResultDto.From).ToList();
@@ -279,6 +315,9 @@ public class ReleaseHubController : ControllerBase
     /// Tests connectivity to a provider.
     /// </summary>
     /// <param name="provider">The provider name, <c>TvMaze</c> or <c>AnimeSchedule</c>.</param>
+    /// <param name="request">
+    /// Optionally carries a candidate credential to test instead of the stored one.
+    /// </param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <response code="200">The test ran; inspect the result for success.</response>
     /// <response code="404">No such provider.</response>
@@ -293,6 +332,7 @@ public class ReleaseHubController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ProviderTestResult>> TestProvider(
         string provider,
+        [FromBody] ProviderTestRequestDto? request,
         CancellationToken cancellationToken)
     {
         if (!Enum.TryParse<ReleaseProviderKind>(provider, ignoreCase: true, out var kind))
@@ -306,7 +346,10 @@ public class ReleaseHubController : ControllerBase
             return NotFound();
         }
 
-        return await implementation.TestConnectionAsync(cancellationToken).ConfigureAwait(false);
+        // The candidate credential is used for this request only and never written to configuration.
+        return await implementation
+            .TestConnectionAsync(request?.ApiKey, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -376,19 +419,45 @@ public class ReleaseHubController : ControllerBase
     }
 
     /// <summary>
+    /// Reports what ReleaseHub observes about the web interface it is served alongside.
+    /// </summary>
+    /// <response code="200">The observations were returned.</response>
+    /// <returns>The current state.</returns>
+    /// <remarks>
+    /// Administrator-only: it describes server-side integration state, not anything a viewer needs.
+    /// </remarks>
+    [HttpGet("Interface/Status")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<InterfaceStatusDto> GetInterfaceStatus()
+    {
+        return new InterfaceStatusDto
+        {
+            FileTransformationAvailable = Integration.FileTransformationHook.IsUserTabAvailable,
+            IndexHtmlObserved = Integration.TransformationPatches.IndexHtmlObserved,
+            AbyssSpotlightDetected = Integration.TransformationPatches.AbyssSpotlightDetected,
+            AbyssSpotlightRemoved = Integration.TransformationPatches.AbyssSpotlightRemoved,
+            HideAbyssSpotlight = Plugin.Config.HideAbyssSpotlight
+        };
+    }
+
+    /// <summary>
     /// Starts a synchronization immediately.
     /// </summary>
     /// <response code="204">The task was queued.</response>
     /// <returns>No content.</returns>
     /// <remarks>
     /// Queued through Jellyfin's task manager rather than run inline, so it shows up in the dashboard's
-    /// scheduled task UI with progress and cancellation like any other task.
+    /// scheduled task UI with progress and cancellation like any other task. Flagged as deliberate
+    /// first: the task skips a run whose data is still fresh, which is right for a startup trigger and
+    /// wrong for a button someone just pressed.
     /// </remarks>
     [HttpPost("Sync")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public ActionResult Synchronize()
     {
+        ScheduledTasks.SyncReleasesTask.RequestImmediateRun();
         _taskManager.QueueScheduledTask<ScheduledTasks.SyncReleasesTask>();
         return NoContent();
     }
@@ -400,9 +469,15 @@ public class ReleaseHubController : ControllerBase
             return releases.Where(item => item.IsAnime);
         }
 
+        if (string.Equals(filter, "movie", StringComparison.OrdinalIgnoreCase))
+        {
+            return releases.Where(item => item.Kind == ReleaseKind.Movie);
+        }
+
+        // "TV series" now means neither anime nor a film, rather than simply "not anime".
         if (string.Equals(filter, "tv", StringComparison.OrdinalIgnoreCase))
         {
-            return releases.Where(item => !item.IsAnime);
+            return releases.Where(item => !item.IsAnime && item.Kind != ReleaseKind.Movie);
         }
 
         return releases;
