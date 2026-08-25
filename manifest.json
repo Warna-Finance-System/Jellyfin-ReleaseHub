@@ -7,6 +7,15 @@
     "owner": "Warna",
     "category": "General",
     "imageUrl": "https://raw.githubusercontent.com/Warna-Finance-System/Jellyfin-ReleaseHub/main/media/logo.png",
-    "versions": []
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "https://github.com/Warna-Finance-System/Jellyfin-ReleaseHub/releases/tag/v1.0.0.0",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/Warna-Finance-System/Jellyfin-ReleaseHub/releases/download/v1.0.0.0/ReleaseHub_1.0.0.0.zip",
+        "checksum": "66B6B10CDFDAEBEF00D2A615D8B0DA50",
+        "timestamp": "2026-08-25T18:08:45Z"
+      }
+    ]
   }
 ]
