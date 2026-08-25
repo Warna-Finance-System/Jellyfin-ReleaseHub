@@ -34,7 +34,9 @@ arrive.
 ## Fonctionnalités
 
 - **Calendrier** sur 7, 14 ou 30 jours, groupé par jour, avec affiche, saison, épisode, heure et plateforme.
-- **À venir** — vue compacte répartie en *Aujourd'hui*, *Demain*, *Cette semaine*, *Plus tard*.
+- **À venir** — vue compacte répartie en *Aujourd'hui*, *Demain*, *Cette semaine*, *Plus tard*, avec un
+  bouton **Voir plus** qui charge la suite **à la suite** de ce qui est déjà affiché, sans reconstruire
+  la page ni vous ramener en haut.
 - **Suivis** — suivez des séries et des animés **absents de votre bibliothèque**, sans rien télécharger.
 - **Films** — les sorties à venir d'une saga dont vous possédez déjà un film, via TMDb.
 - **Découvrir** — recherche sur TVMaze, AnimeSchedule et TMDb, avec badges *Dans la bibliothèque* et *Suivi*.
@@ -45,6 +47,9 @@ arrive.
 - **Responsive** — bureau, tablette et mobile.
 - **File d'attente de confirmation** — une correspondance incertaine n'est jamais utilisée
   automatiquement ; elle attend votre validation.
+- **Retouches de l'interface web** — notamment un interrupteur pour masquer le carrousel *spotlight*
+  du thème Abyss lorsqu'il se superpose à celui du plugin Media Bar. Voir
+  [Interface web](#interface-web).
 
 ### Ce que ReleaseHub ne fait jamais
 
@@ -170,6 +175,64 @@ sinon elle est signalée comme approximative. Un film annoncé sans date reste a
 Deux tâches apparaissent dans **Tableau de bord → Tâches planifiées** :
 *ReleaseHub - Synchronize Releases* et *ReleaseHub - Clear Cache*.
 
+*Synchronize Releases* se lance aussi au démarrage du serveur, parce qu'un déclencheur par intervalle
+est réarmé à zéro à chaque redémarrage : sur une machine qui redémarre plus souvent que l'intervalle,
+il ne se déclencherait jamais. Une exécution dont les données ont moins de 30 minutes est ignorée pour
+que ça reste sans coût — sauf si **vous** l'avez demandée, auquel cas elle part toujours.
+
+#### Horizon de synchronisation
+
+ReleaseHub récupère les sorties jusqu'à **365 jours** à l'avance. Passé cette limite, rien n'a jamais
+été demandé à un fournisseur : le bouton *Voir plus* s'arrête donc là et le dit, au lieu d'afficher
+des pages vides qui se liraient comme « rien n'est prévu » alors qu'elles signifient « rien n'a été
+cherché ».
+
+Cette année ne coûte **aucune requête supplémentaire**, parce que chaque fournisseur déclare jusqu'où
+il vaut la peine de l'interroger :
+
+| Fournisseur | Coût d'une fenêtre plus large | Horizon interrogé |
+|---|---|---|
+| TVMaze | **nul** — la liste d'épisodes complète arrive en une requête | 365 jours |
+| TMDb | **nul** — une requête par film, indépendante de la fenêtre | 365 jours |
+| AnimeSchedule | **une requête par semaine** | 182 jours |
+
+AnimeSchedule garde une fenêtre plus courte pour deux raisons : c'est le seul dont le coût croît avec
+la fenêtre, et sa grille ne va pas jusqu'à un an — les saisons sont annoncées environ un trimestre à
+l'avance, donc les semaines au-delà coûteraient une requête chacune pour ne rien rapporter. Le reste
+de l'année reste couvert par les deux fournisseurs que ça ne coûte rien d'interroger.
+
+### Interface web
+
+Page dédiée : **Tableau de bord → ReleaseHub → *Web interface adjustments***.
+
+Elle regroupe les retouches que ReleaseHub applique à la page servie par jellyfin-web. Chacune est
+appliquée à la **réponse HTTP**, jamais à un fichier sur le disque — donc rien de ce qu'un autre
+plugin ou un thème a installé n'est modifié ni supprimé, et une mise à jour ne peut pas défaire votre
+choix. Ces retouches nécessitent le plugin **File Transformation** ; sans lui, la page le dit
+explicitement au lieu de laisser une case sans effet.
+
+#### Masquer le spotlight d'Abyss
+
+Le thème Abyss s'installe en écrivant dans jellyfin-web. Il ajoute entre autres à `index.html` une
+balise qui monte son propre carrousel (une iframe) en haut de l'onglet Accueil :
+
+```html
+<script src="ui/spotlight-loader.js" data-abyss-spotlight></script>
+```
+
+Sur un serveur qui fait aussi tourner le plugin **Media Bar**, les deux carrousels se montent au même
+endroit et se superposent. Celui du dessous transparaît sous l'autre : texte fantôme, bouton
+d'information en trop, seconde rangée de points de pagination qui défile à son propre rythme.
+
+Comme cette balise vit dans un fichier et non dans un plugin, désinstaller des plugins ne l'enlève
+jamais, et modifier le fichier à la main est défait par la mise à jour suivante du thème ou du
+serveur. ReleaseHub la retire de la réponse à la place. Tout ce qu'Abyss a installé reste intact sur
+le disque : décocher la case fait revenir le carrousel immédiatement.
+
+La page indique aussi ce qu'elle observe réellement — balise détectée ou non, actuellement retirée ou
+non — ce qui distingue trois situations qu'un simple « ça ne marche pas » confondrait : File
+Transformation absent, aucune page encore servie depuis le démarrage, ou Abyss réellement absent.
+
 ## Gestion de la clé API
 
 La clé AnimeSchedule est stockée côté serveur dans
@@ -245,6 +308,9 @@ Aucune chaîne visible n'est codée en dur : tout passe par
 | Un film de ma bibliothèque n'a pas de suite affichée | La saga n'a pas d'entrée non sortie chez TMDb, ou *Suivre les collections* est décoché |
 | Pas d'entrée ReleaseHub dans le menu principal | File Transformation absent — ReleaseHub reste accessible depuis le tableau de bord |
 | Heure absente sur un épisode | Le fournisseur n'en a pas donné. ReleaseHub n'invente pas d'heure |
+| *Voir plus* n'affiche plus rien | Vous avez atteint l'horizon de synchronisation ; ReleaseHub le dit alors explicitement plutôt que de charger des pages vides |
+| Deux carrousels superposés sur l'accueil | Le spotlight d'Abyss et le plugin Media Bar se montent au même endroit → [Interface web](#interface-web) |
+| *Synchronize now* semble ignoré | Corrigé : une synchronisation demandée explicitement s'exécute toujours, même si les données sont récentes |
 
 Pour un diagnostic détaillé : activez **Enable debug logging** dans la configuration, puis consultez
 **Tableau de bord → Journaux**. Les clés API n'y apparaissent jamais.
@@ -305,7 +371,7 @@ src/Jellyfin.Plugin.ReleaseHub/
 ├── Plugin.cs                  BasePlugin + IHasWebPages (sert tous les assets web)
 ├── PluginServiceRegistrator   Enregistrement DI
 ├── Api/                       Contrôleur /ReleaseHub/* + DTO client
-├── Configuration/             Configuration persistée + page admin
+├── Configuration/             Configuration persistée + pages admin
 ├── Integration/               Hook File Transformation (réflexion, optionnel)
 ├── Localization/              fr-FR.json, en-US.json
 ├── Models/                    Modèle normalisé, commun aux fournisseurs
@@ -320,14 +386,32 @@ Les assets web sont des ressources embarquées servies par le mécanisme natif d
 
 ### Publier une version
 
-```bash
-git tag v1.0.0.1
-git push --tags
+La version n'est déclarée qu'à un seul endroit, `build.yaml`. Montez-la, décrivez la nouveauté dans le
+même fichier, poussez sur `main` — c'est tout :
+
+```yaml
+version: "1.0.0.1"
+changelog: |
+  Ce que cette version apporte.
 ```
 
-Le workflow [`release.yml`](.github/workflows/release.yml) compile, teste, crée l'archive, calcule son
-MD5, publie la release GitHub et ajoute automatiquement l'entrée dans `manifest.json`. Le numéro de
-version doit comporter **quatre parties** (`1.0.0.1`) : Jellyfin les compare comme des `System.Version`.
+```bash
+git commit -am "Release 1.0.0.1" && git push
+```
+
+Le workflow [`release.yml`](.github/workflows/release.yml) crée le tag `v1.0.0.1`, compile avec ce
+numéro, lance les tests, produit l'archive, calcule son MD5, publie la release GitHub et ajoute
+l'entrée dans `manifest.json`. Les notes de release s'ouvrent sur le `changelog` de `build.yaml` — le
+même que lit le catalogue de plugins Jellyfin, donc les deux ne peuvent pas diverger — suivi du
+changelog par commits généré par GitHub et d'un tableau de compatibilité.
+
+Un commit qui ne monte pas la version ne publie rien : une version dont le tag existe déjà n'est jamais
+republiée. Pousser un tag `v*` à la main, ou lancer le workflow depuis l'onglet *Actions*, reste
+possible et publie sans condition.
+
+Le numéro doit comporter **quatre parties** (`1.0.0.1`) : Jellyfin les compare comme des
+`System.Version`, et le workflow refuse tout autre format plutôt que de laisser s'installer une version
+qui se trierait ensuite n'importe comment.
 
 ## Licence
 
