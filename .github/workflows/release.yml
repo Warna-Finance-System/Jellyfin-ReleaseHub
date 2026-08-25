@@ -1,40 +1,74 @@
 name: Release
 
-# Publishing is driven entirely by tags: pushing v1.0.0.1 builds that version, publishes the release
-# asset, and prepends the matching entry to manifest.json so Jellyfin servers subscribed to the
-# repository see the update without anyone editing the manifest by hand.
+# Publishing is driven by the version in build.yaml. Bump it, push to main, and this workflow tags
+# that version, builds it, publishes the release asset and prepends the matching entry to
+# manifest.json, so servers subscribed to the repository see the update without anyone editing the
+# manifest by hand. Pushing a v* tag or dispatching manually does the same thing on demand.
+#
+# The tag is what makes this safe to run on every push: a version whose tag already exists is not
+# released again, so ordinary commits pass straight through.
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish, for example 1.0.0.1'
-        required: true
+        description: 'Version to publish. Leave empty to use the version in build.yaml.'
+        required: false
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  # Deciding is separated from publishing so that the common case — a commit that does not bump the
+  # version — costs one short job instead of a checkout, a restore and a build.
+  decide:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      publish: ${{ steps.resolve.outputs.publish }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
         with:
-          # Needed so the manifest commit can be pushed back onto the default branch.
-          ref: main
           fetch-depth: 0
 
-      - name: Resolve version
-        id: version
+      - name: Resolve the version to publish
+        id: resolve
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
+          set -euo pipefail
+
+          # A tag push and a manual dispatch are both deliberate requests, so they publish whatever
+          # they name. Only an ordinary commit to main has to be judged, and the judgement is simply
+          # whether its version has been released already.
+          DELIBERATE=false
+
+          if [ "${{ github.ref_type }}" = "tag" ]; then
             VERSION="${GITHUB_REF_NAME#v}"
+            REASON="tag ${GITHUB_REF_NAME} was pushed"
+            DELIBERATE=true
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            if [ -z "$VERSION" ]; then
+              VERSION=$(sed -nE 's/^version:[[:space:]]*"?([^"]+)"?[[:space:]]*$/\1/p' build.yaml | head -1)
+            fi
+            REASON="requested manually"
+            DELIBERATE=true
+          else
+            # build.yaml is the single place the version is declared; the manifest and the release
+            # both follow it, so there is no second number to keep in step.
+            VERSION=$(sed -nE 's/^version:[[:space:]]*"?([^"]+)"?[[:space:]]*$/\1/p' build.yaml | head -1)
+            REASON="build.yaml declares $VERSION"
+          fi
+
+          if [ -z "$VERSION" ]; then
+            echo "::error::No version could be resolved. Check that build.yaml declares one."
+            exit 1
           fi
 
           # Jellyfin compares plugin versions as four-part System.Version values, so reject anything
@@ -44,26 +78,45 @@ jobs:
             exit 1
           fi
 
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          TAG="v$VERSION"
 
-      - name: Create tag when dispatched manually
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          TAG="${{ steps.version.outputs.tag }}"
-
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists; reusing it."
-            exit 0
+          if [ "$DELIBERATE" = "true" ]; then
+            echo "Publishing $VERSION ($REASON)."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            REASON="$VERSION is already released as $TAG"
+            echo "Nothing to do: $REASON."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Publishing $VERSION ($REASON)."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
 
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-          # Annotated rather than lightweight: it carries an author and a date, which is what
-          # `git describe` and the releases page expect to find.
-          git tag -a "$TAG" -m "ReleaseHub ${{ steps.version.outputs.version }}"
-          git push origin "$TAG"
+          {
+            echo "### Release decision"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Version | \`$VERSION\` |"
+            echo "| Tag | \`$TAG\` |"
+            echo "| Reason | $REASON |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    needs: decide
+    if: needs.decide.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          # Needed so the manifest commit can be pushed back onto the default branch.
+          ref: main
+          fetch-depth: 0
 
       - name: Read target ABI from build.yaml
         id: abi
@@ -86,9 +139,9 @@ jobs:
           dotnet build src/Jellyfin.Plugin.ReleaseHub/Jellyfin.Plugin.ReleaseHub.csproj \
             -c Release \
             -o artifacts \
-            -p:Version=${{ steps.version.outputs.version }} \
-            -p:AssemblyVersion=${{ steps.version.outputs.version }} \
-            -p:FileVersion=${{ steps.version.outputs.version }}
+            -p:Version=${{ needs.decide.outputs.version }} \
+            -p:AssemblyVersion=${{ needs.decide.outputs.version }} \
+            -p:FileVersion=${{ needs.decide.outputs.version }}
 
       - name: Run tests
         run: dotnet test -c Release --nologo
@@ -96,7 +149,8 @@ jobs:
       - name: Package
         id: package
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          set -euo pipefail
+          VERSION="${{ needs.decide.outputs.version }}"
           ZIP="ReleaseHub_${VERSION}.zip"
 
           # Jellyfin extracts the archive straight into plugins/<name>_<version>/, so the assembly has
@@ -114,12 +168,31 @@ jobs:
       - name: Compose release notes
         id: notes
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          set -euo pipefail
+          VERSION="${{ needs.decide.outputs.version }}"
           REPO="${{ github.repository }}"
+
+          # The changelog lives in build.yaml as a folded block, which is also what Jellyfin's own
+          # plugin tooling reads. Pulled out here so the release page and the plugin catalogue say the
+          # same thing rather than drifting apart.
+          awk '
+            /^changelog:/ { inblock = 1; next }
+            inblock && /^[^[:space:]]/ { inblock = 0 }
+            inblock { sub(/^[[:space:]]+/, ""); print }
+          ' build.yaml > changelog.txt
+
+          {
+            if [ -s changelog.txt ]; then
+              echo "## What's new"
+              echo ""
+              cat changelog.txt
+              echo ""
+            fi
+          } > release-notes.md
 
           # Written to a file rather than inlined: a release body contains backticks and newlines
           # that do not survive shell interpolation intact.
-          cat > release-notes.md <<'NOTES'
+          cat >> release-notes.md <<'NOTES'
           ## Installation
 
           **Via the plugin repository (recommended)**
@@ -148,17 +221,25 @@ jobs:
           NOTES
 
           # Substituted afterwards so the heredoc itself stays literal.
-          sed -i             -e "s#MANIFEST_URL#https://raw.githubusercontent.com/${REPO}/main/manifest.json#"             -e "s#VERSION#${VERSION}#g"             -e "s#TARGET_ABI#${{ steps.abi.outputs.abi }}#"             -e "s#CHECKSUM#${{ steps.package.outputs.checksum }}#"             release-notes.md
+          sed -i \
+            -e "s#MANIFEST_URL#https://raw.githubusercontent.com/${REPO}/main/manifest.json#" \
+            -e "s#VERSION#${VERSION}#g" \
+            -e "s#TARGET_ABI#${{ steps.abi.outputs.abi }}#" \
+            -e "s#CHECKSUM#${{ steps.package.outputs.checksum }}#" \
+            release-notes.md
 
           cat release-notes.md
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ReleaseHub ${{ steps.version.outputs.version }}
+          tag_name: ${{ needs.decide.outputs.tag }}
+          name: ReleaseHub ${{ needs.decide.outputs.version }}
           body_path: release-notes.md
           files: ${{ steps.package.outputs.zip }}
+          # Creates the tag on the commit being released when it does not exist yet, which is what
+          # makes a version bump on main enough to publish.
+          target_commitish: ${{ github.sha }}
           # Appends GitHub's own categorised changelog underneath our body.
           generate_release_notes: true
           make_latest: true
@@ -166,7 +247,7 @@ jobs:
       - name: Update manifest.json
         run: |
           python3 scripts/update_manifest.py \
-            "${{ steps.version.outputs.version }}" \
+            "${{ needs.decide.outputs.version }}" \
             "${{ steps.abi.outputs.abi }}" \
             "${{ steps.package.outputs.checksum }}" \
             "${{ steps.package.outputs.zip }}"
@@ -182,5 +263,19 @@ jobs:
           fi
 
           git add manifest.json
-          git commit -m "chore: publish ReleaseHub ${{ steps.version.outputs.version }} in the plugin manifest"
+          git commit -m "chore: publish ReleaseHub ${{ needs.decide.outputs.version }} in the plugin manifest"
           git push origin main
+
+      - name: Summarise
+        run: |
+          {
+            echo "### Published"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Version | \`${{ needs.decide.outputs.version }}\` |"
+            echo "| Tag | \`${{ needs.decide.outputs.tag }}\` |"
+            echo "| Archive | \`${{ steps.package.outputs.zip }}\` |"
+            echo "| MD5 | \`${{ steps.package.outputs.checksum }}\` |"
+            echo "| Target ABI | \`${{ steps.abi.outputs.abi }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

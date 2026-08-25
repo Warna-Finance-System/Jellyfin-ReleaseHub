@@ -16,5 +16,16 @@ description: >
 category: "General"
 artifacts:
   - "Jellyfin.Plugin.ReleaseHub.dll"
-changelog: >
-  Initial release.
+changelog: |
+  First release.
+
+  - Calendar, Upcoming, Following and Discover, with All / Anime / TV series / Films filters
+  - TVMaze, AnimeSchedule and TMDb, each swappable behind a common provider contract
+  - Films and sagas: the next entry of a collection already in the library
+  - One-year horizon, at no extra request cost: each provider declares how far ahead it is worth asking
+  - Incremental "load more" in Upcoming, stopping honestly at the horizon rather than on empty pages
+  - French and English throughout, with no user-facing string hardcoded in the interface
+  - Strictly read-only: never renames, moves, deletes or downloads media, and never edits metadata
+  - Rate limiting, request de-duplication, 429 and Retry-After handling, and an SQLite cache
+  - Optional user-facing entry point through the File Transformation plugin
+  - Web interface page, including a toggle for the Abyss theme's spotlight carousel
