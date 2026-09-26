@@ -1,13 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <!-- Mirrors the plugin: each target runs the suite against the build compiled for that Jellyfin
+         generation (net9.0 -> 10.11, net10.0 -> 12.x), so neither can regress unnoticed. -->
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <LangVersion>latest</LangVersion>
-    <!-- The plugin targets net9.0 because that is what Jellyfin 10.11 runs on, but a developer machine
-         may only have a newer shared runtime installed. Rolling forward lets the tests execute there;
-         it affects the test host only, never the shipped assembly. -->
+    <!-- A developer machine may lack the .NET 9 shared runtime. Rolling forward lets the net9.0 tests
+         execute there anyway; it affects the test host only, never the shipped assembly. -->
     <RollForward>LatestMajor</RollForward>
     <!-- Test methods do not need XML documentation, and CA1707 fights the Given_When_Then naming
          that makes a failing test readable in CI output. -->
@@ -18,6 +19,12 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Same advisory the plugin project suppresses. Here the native SQLite does load, but only inside
+         the test host, against fixture data; nothing from this project is ever shipped. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
   </ItemGroup>
 
   <ItemGroup>

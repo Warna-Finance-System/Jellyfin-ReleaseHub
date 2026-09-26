@@ -1,9 +1,24 @@
 ---
 name: "Jellyfin ReleaseHub"
 guid: "8d9233a8-2ce9-4603-b5e2-e26f89f9408c"
-version: "1.0.0.1"
-targetAbi: "10.11.11.0"
-framework: "net9.0"
+# ReleaseHub's own version, major.minor.patch. It is the only number to bump for a release.
+#
+# Each build below is published as this version with its Jellyfin generation appended as a fourth
+# part: 1.1.0.11 for Jellyfin 10.11, 1.1.0.12 for Jellyfin 12. The plugin catalogue installs the
+# highest version whose targetAbi the server satisfies, so a 12.x server takes the 12 build (the
+# higher number), a 10.11 server never sees it (its targetAbi is out of reach), and a server
+# upgraded from 10.11 to 12 is offered the 12 build as an update.
+version: "1.1.0"
+# One build per Jellyfin generation, all from the same source. They cannot be merged into one: 10.11
+# runs on .NET 9 and cannot load a net10.0 assembly, and 12 changed Jellyfin's own APIs.
+# targetAbi is the oldest server each build supports; the csproj compiles against that same version.
+targets:
+  - generation: "11"
+    framework: "net9.0"
+    targetAbi: "10.11.11.0"
+  - generation: "12"
+    framework: "net10.0"
+    targetAbi: "12.0.0.0"
 # Shown as the plugin's developer in Jellyfin's plugin catalogue and details page.
 owner: "Warna"
 overview: "Unified TV series, anime and film release calendar for Jellyfin."
@@ -17,8 +32,18 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.ReleaseHub.dll"
 changelog: |
-  - TVMaze gains a *Test connection* button in the settings page, alongside AnimeSchedule and TMDb.
-    TVMaze needs no key, so it checks reachability: a typo in the base URL, or blocked outbound
-    access, is now visible instead of showing up later as a silently empty calendar.
-  - The local build script stamps the assembly with the version from build.yaml, so an installed
-    plugin folder and the assembly inside it can no longer disagree.
+  - Jellyfin 12 support. ReleaseHub now ships two builds from the same source: 1.1.0.12 for
+    Jellyfin 12.x (.NET 10, compiled against Jellyfin 12's own libraries) and 1.1.0.11 for
+    Jellyfin 10.11.x. The plugin catalogue picks the right one; a server upgraded from 10.11 to 12
+    is offered the 12 build as an update.
+  - Jellyfin 12's header. The modern layout, now the default on desktop and mobile, has no tab bar
+    and no side menu for ReleaseHub to join, so it was unreachable there except from the dashboard.
+    ReleaseHub now appears at the end of the header navigation, after your libraries, and below
+    Favorites in the menu that replaces it on narrow screens. It copies a native button, so Abyss
+    and other themes style it like its neighbours, and it is highlighted while open. It never makes
+    the header taller: the row is kept on one line, and when the label would run into the icons
+    around it, ReleaseHub shows as a calendar icon with a tooltip instead.
+  - Choosing a library or Favorites in that header while ReleaseHub is open now closes it, instead
+    of loading the page underneath where it could not be seen.
+  - The legacy layout (Jellyfin 10.11, and the *legacy* and TV layouts of Jellyfin 12) keeps its
+    tab and side-menu entries unchanged.

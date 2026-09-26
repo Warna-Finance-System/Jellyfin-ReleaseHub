@@ -1,9 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- Jellyfin 10.11.x runs on net9.0 (verified in jellyfin.runtimeconfig.json). Do not raise this:
-         a plugin built for a newer TFM will not load into the 10.11.11 server. -->
-    <TargetFramework>net9.0</TargetFramework>
+    <!-- One source tree, one build per Jellyfin generation, because the two are not interchangeable:
+         - net9.0  -> Jellyfin 10.11.x, which runs on .NET 9 and cannot load a net10.0 assembly;
+         - net10.0 -> Jellyfin 12.x, which runs on .NET 10 and changed members of MediaBrowser.Controller,
+                      so an assembly compiled against 10.11 can fail there with MissingMethodException.
+         Each build is compiled against the packages of the server it ships for (see below), which
+         turns an API break into a compile error instead of a crash on the user's server. -->
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
     <!-- Fallback only. build.ps1 and the release workflow both pass the version from build.yaml,
          which is the single place it is declared; these values apply to a bare `dotnet build`. -->
     <AssemblyVersion>1.0.0.1</AssemblyVersion>
@@ -20,9 +24,11 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- CA1848: source-generated LoggerMessage delegates. The plugin logs a handful of lines at startup
          and around provider failures, never on a hot path, so the readability cost is not worth paying.
+         CA1873 (new in the .NET 10 analyzers) is the same trade-off seen from the argument side: guard
+         each log argument in case logging is off. Same reasoning, same answer.
          CA1822: ASP.NET Core controller actions are conventionally instance members even when they touch
          no instance state. -->
-    <NoWarn>$(NoWarn);CA1848;CA1822</NoWarn>
+    <NoWarn>$(NoWarn);CA1848;CA1873;CA1822</NoWarn>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <Product>Jellyfin ReleaseHub</Product>
     <Company>Warna</Company>
@@ -30,19 +36,34 @@
     <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
   </PropertyGroup>
 
+  <!-- The versions each server generation ships. Never reference a newer one than the oldest server a
+       build targets: the server's copy is what gets loaded, and .NET refuses to bind a reference to an
+       older assembly than the one it was compiled against. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net9.0'">
+    <JellyfinPackageVersion>10.11.11</JellyfinPackageVersion>
+    <!-- Jellyfin 10.11.11 ships Microsoft.Data.Sqlite 9.0.11. -->
+    <SqlitePackageVersion>9.0.11</SqlitePackageVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <!-- 12.0.0 rather than the latest 12.x, so the build loads on every 12.x server. -->
+    <JellyfinPackageVersion>12.0.0</JellyfinPackageVersion>
+    <!-- Jellyfin 12.0 and 12.1 both ship Microsoft.Data.Sqlite 10.0.11. -->
+    <SqlitePackageVersion>10.0.11</SqlitePackageVersion>
+  </PropertyGroup>
+
   <ItemGroup>
     <!-- Every package below is already shipped inside the Jellyfin server directory.
          ExcludeAssets="runtime" compiles against them without copying duplicate DLLs into the
          plugin folder, which is what causes assembly-load conflicts at server startup. -->
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.11">
+    <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinPackageVersion)">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="Jellyfin.Model" Version="10.11.11">
+    <PackageReference Include="Jellyfin.Model" Version="$(JellyfinPackageVersion)">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <!-- Server ships Microsoft.Data.Sqlite 9.0.11 alongside e_sqlite3.dll; we reuse that provider
-         for the plugin's own cache database rather than bundling a second SQLite native library. -->
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.11">
+    <!-- The server ships Microsoft.Data.Sqlite alongside e_sqlite3.dll; we reuse that provider for the
+         plugin's own cache database rather than bundling a second SQLite native library. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="$(SqlitePackageVersion)">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
     <!-- Only needed to build the JObject that File Transformation's PluginInterface.RegisterTransformation
@@ -50,6 +71,14 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- CVE-2025-6965, in the native SQLite that SQLitePCLRaw.lib.e_sqlite3 carries. It reaches this
+         project only transitively through Microsoft.Data.Sqlite, whose runtime assets are excluded
+         above: the plugin never ships that native library and always runs on the server's own copy.
+         Suppressed for this one advisory only, so the audit keeps failing the build on anything else. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
   </ItemGroup>
 
   <ItemGroup>

@@ -6,6 +6,10 @@
     Compiles the plugin in Release configuration and copies the resulting assembly, together with a
     generated meta.json, into the Jellyfin plugin directory.
 
+    ReleaseHub ships one build per Jellyfin generation (see `targets` in build.yaml): net9.0 for
+    Jellyfin 10.11, net10.0 for Jellyfin 12. The one installed is the one the local server can load,
+    found from the version of its jellyfin.dll.
+
     Jellyfin loads plugin assemblies at startup and keeps them locked for the lifetime of the process,
     so the server has to be stopped before the DLL can be replaced and restarted before the new build
     takes effect. Pass -RestartJellyfin to have this script do that; otherwise it stops with an
@@ -13,6 +17,10 @@
 
 .PARAMETER PluginRoot
     The Jellyfin plugins directory. Defaults to the Windows service location.
+
+.PARAMETER JellyfinVersion
+    The Jellyfin version to build for, such as 12.1.0 or 10.11.11. Defaults to the version of the
+    local server. With -SkipInstall and no server found, every target is built.
 
 .PARAMETER SkipInstall
     Build only, without touching the Jellyfin installation.
@@ -25,10 +33,14 @@
 
 .EXAMPLE
     .\build.ps1 -SkipInstall
+
+.EXAMPLE
+    .\build.ps1 -SkipInstall -JellyfinVersion 10.11.11
 #>
 [CmdletBinding()]
 param(
     [string] $PluginRoot = "$env:ProgramData\Jellyfin\Server\plugins",
+    [string] $JellyfinVersion,
     [switch] $SkipInstall,
     [switch] $RestartJellyfin
 )
@@ -39,13 +51,90 @@ $repoRoot = $PSScriptRoot
 $project = Join-Path $repoRoot 'src\Jellyfin.Plugin.ReleaseHub\Jellyfin.Plugin.ReleaseHub.csproj'
 $buildYaml = Join-Path $repoRoot 'build.yaml'
 
-# Single source of truth for name/guid/version: build.yaml, the same file the Jellyfin plugin
-# repository tooling reads.
+# Single source of truth for name/guid/version and the build targets: build.yaml, the same file the
+# release workflow reads (through scripts/build_targets.py).
 $meta = @{}
+$targets = @()
+$inTargets = $false
+
 foreach ($line in Get-Content $buildYaml) {
-    if ($line -match '^\s*(name|guid|version|targetAbi|owner|category|overview)\s*:\s*"?([^"]*)"?\s*$') {
-        $meta[$Matches[1]] = $Matches[2].Trim()
+    if ($line -match '^\S') {
+        $inTargets = $line -match '^targets\s*:'
     }
+
+    if ($line -match '^(name|guid|version|owner|category|overview)\s*:\s*"?([^"]*)"?\s*$') {
+        $meta[$Matches[1]] = $Matches[2].Trim()
+        continue
+    }
+
+    if (-not $inTargets) {
+        continue
+    }
+
+    # "  - generation: ..." opens a target; the indented keys after it belong to that target.
+    if ($line -match '^\s+-\s+(\w+)\s*:\s*"?([^"]*)"?\s*$') {
+        $targets += @{ $Matches[1] = $Matches[2].Trim() }
+    }
+    elseif ($line -match '^\s+(\w+)\s*:\s*"?([^"]*)"?\s*$' -and $targets.Count -gt 0) {
+        $targets[-1][$Matches[1]] = $Matches[2].Trim()
+    }
+}
+
+if ($meta.version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "build.yaml must declare a three-part version such as 1.1.0; found '$($meta.version)'."
+}
+
+if ($targets.Count -eq 0) {
+    throw 'build.yaml declares no targets.'
+}
+
+foreach ($t in $targets) {
+    # Published as ReleaseHub's version plus the Jellyfin generation, like the release workflow does,
+    # so a local install sorts against catalogue installs exactly as a released one would.
+    $t.pluginVersion = "$($meta.version).$($t.generation)"
+}
+
+function ConvertTo-FullVersion([string] $text) {
+    # Four parts, missing ones as zero. [version] treats a missing part as lower than 0, which would
+    # rank a 10.11.11 server below a 10.11.11.0 targetAbi and refuse the build made for it.
+    $match = [regex]::Match($text, '^\d+(\.\d+){0,3}')
+    if (-not $match.Success) {
+        return $null
+    }
+
+    $parts = @($match.Value.Split('.') | ForEach-Object { [int] $_ })
+    while ($parts.Count -lt 4) {
+        $parts += 0
+    }
+
+    return [version]::new($parts[0], $parts[1], $parts[2], $parts[3])
+}
+
+function Get-LocalJellyfinVersion {
+    $dll = Join-Path $env:ProgramFiles 'Jellyfin\Server\jellyfin.dll'
+    if (Test-Path $dll) {
+        return (Get-Item $dll).VersionInfo.ProductVersion
+    }
+
+    return $null
+}
+
+function Select-Target([string] $serverVersion) {
+    # What the plugin catalogue does: the newest build whose targetAbi the server satisfies.
+    $server = ConvertTo-FullVersion $serverVersion
+    if ($null -eq $server) {
+        throw "'$serverVersion' is not a Jellyfin version."
+    }
+
+    $compatible = @($targets |
+        Where-Object { (ConvertTo-FullVersion $_.targetAbi) -le $server } |
+        Sort-Object { ConvertTo-FullVersion $_.targetAbi } -Descending)
+
+    if ($compatible.Count -eq 0) {
+        throw "No ReleaseHub build supports Jellyfin $serverVersion. See targets in build.yaml."
+    }
+
+    return $compatible[0]
 }
 
 function Get-JellyfinProcesses {
@@ -100,26 +189,55 @@ function Start-Jellyfin {
     Write-Warning 'Could not find Jellyfin to restart. Start it manually.'
 }
 
-Write-Host "Building $($meta.name) $($meta.version) (targetAbi $($meta.targetAbi))" -ForegroundColor Cyan
+function Build-Target($t) {
+    Write-Host "Building $($meta.name) $($t.pluginVersion) for Jellyfin $($t.targetAbi)+ ($($t.framework))" -ForegroundColor Cyan
 
-$outDir = Join-Path $repoRoot 'artifacts'
-# Stamped from build.yaml rather than from the csproj: the install folder is named after that
-# version, and a folder claiming one version around an assembly claiming another is the kind of
-# mismatch that is only noticed once Jellyfin refuses to update the plugin.
-dotnet build $project -c Release -o $outDir --nologo `
-    -p:Version=$($meta.version) `
-    -p:AssemblyVersion=$($meta.version) `
-    -p:FileVersion=$($meta.version)
-if ($LASTEXITCODE -ne 0) {
-    throw "Build failed with exit code $LASTEXITCODE"
+    $outDir = Join-Path $repoRoot "artifacts\$($t.framework)"
+    # Stamped from build.yaml rather than from the csproj: the install folder is named after that
+    # version, and a folder claiming one version around an assembly claiming another is the kind of
+    # mismatch that is only noticed once Jellyfin refuses to update the plugin.
+    # To the console, not the pipeline: this function's output is the path it returns.
+    dotnet build $project -c Release -f $t.framework -o $outDir --nologo `
+        -p:Version=$($t.pluginVersion) `
+        -p:AssemblyVersion=$($t.pluginVersion) `
+        -p:FileVersion=$($t.pluginVersion) | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Build failed with exit code $LASTEXITCODE"
+    }
+
+    $built = Join-Path $outDir 'Jellyfin.Plugin.ReleaseHub.dll'
+    if (-not (Test-Path $built)) {
+        throw "Expected assembly not found at $built"
+    }
+
+    Write-Host "Built $built" -ForegroundColor Green
+    return $built
 }
 
-$dll = Join-Path $outDir 'Jellyfin.Plugin.ReleaseHub.dll'
-if (-not (Test-Path $dll)) {
-    throw "Expected assembly not found at $dll"
+if (-not $JellyfinVersion) {
+    $JellyfinVersion = Get-LocalJellyfinVersion
 }
 
-Write-Host "Built $dll" -ForegroundColor Green
+if ($SkipInstall -and -not $JellyfinVersion) {
+    # Nothing to match against, so build them all.
+    foreach ($t in $targets) {
+        Build-Target $t | Out-Null
+    }
+
+    return
+}
+
+if (-not $JellyfinVersion) {
+    throw @"
+Could not find a local Jellyfin server to read its version from.
+Pass -JellyfinVersion (for example 12.1.0) to choose the build to install.
+"@
+}
+
+$selected = Select-Target $JellyfinVersion
+Write-Host "Jellyfin $JellyfinVersion takes the build for targetAbi $($selected.targetAbi)" -ForegroundColor DarkGray
+
+$dll = Build-Target $selected
 
 if ($SkipInstall) {
     return
@@ -144,7 +262,7 @@ if ($wasRunning) {
     Stop-Jellyfin
 }
 
-$target = Join-Path $PluginRoot "ReleaseHub_$($meta.version)"
+$target = Join-Path $PluginRoot "ReleaseHub_$($selected.pluginVersion)"
 New-Item -ItemType Directory -Force -Path $target | Out-Null
 
 Copy-Item $dll -Destination $target -Force
@@ -172,8 +290,8 @@ $metaJson = [ordered]@{
     overview    = $meta.overview
     description = $meta.overview
     owner       = $meta.owner
-    targetAbi   = $meta.targetAbi
-    version     = $meta.version
+    targetAbi   = $selected.targetAbi
+    version     = $selected.pluginVersion
     timestamp   = (Get-Date).ToUniversalTime().ToString('o')
     status      = 'Active'
     autoUpdate  = $false

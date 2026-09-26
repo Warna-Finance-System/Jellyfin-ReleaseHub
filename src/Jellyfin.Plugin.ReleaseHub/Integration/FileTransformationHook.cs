@@ -17,10 +17,10 @@ namespace Jellyfin.Plugin.ReleaseHub.Integration;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Jellyfin 10.11 has no supported way for a plugin to add a page that non-administrator users can
-/// reach: the SPA route behind <c>#/configurationpage</c> is wrapped in an admin route guard. The
-/// community's File Transformation plugin is the only mechanism available for adding an entry point
-/// that every user sees, so ReleaseHub uses it when it happens to be installed.
+/// Jellyfin (10.11 and 12 alike) has no supported way for a plugin to add a page that
+/// non-administrator users can reach: the SPA route behind <c>#/configurationpage</c> is wrapped in an
+/// admin route guard. The community's File Transformation plugin is the only mechanism available for
+/// adding an entry point that every user sees, so ReleaseHub uses it when it happens to be installed.
 /// </para>
 /// <para>
 /// The integration is entirely reflective and entirely optional. ReleaseHub carries no assembly

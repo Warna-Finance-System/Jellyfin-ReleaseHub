@@ -8,12 +8,17 @@ the update. The release workflow calls this after uploading the archive.
 Written in Python rather than as a jq pipeline so that it can be run and tested on a developer machine,
 not only on a CI runner.
 
+A release carries one archive per Jellyfin generation, each its own plugin version (1.1.0.11,
+1.1.0.12), all attached to the one GitHub release tagged after ReleaseHub's version (v1.1.0). The
+workflow therefore calls this once per archive and passes that tag.
+
 Usage:
-    update_manifest.py <version> <targetAbi> <checksum> <zipName> [manifestPath]
+    update_manifest.py <version> <targetAbi> <checksum> <zipName> [--tag TAG] [--manifest PATH]
 """
 
 from __future__ import annotations
 
+import argparse
 import datetime as _dt
 import json
 import os
@@ -32,12 +37,24 @@ def fail(message: str) -> "None":
     raise SystemExit(1)
 
 
-def main(argv: list[str]) -> int:
-    if len(argv) < 5:
-        fail("usage: update_manifest.py <version> <targetAbi> <checksum> <zipName> [manifestPath]")
+def version_key(entry: dict) -> tuple[int, ...]:
+    # Compared the way Jellyfin compares them, as System.Version, not as text: 1.1.0.12 > 1.1.0.9.
+    return tuple(int(part) for part in str(entry.get("version", "0")).split(".") if part.isdigit())
 
-    version, target_abi, checksum, zip_name = argv[1:5]
-    manifest_path = argv[5] if len(argv) > 5 else "manifest.json"
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description="Add a released version to manifest.json.")
+    parser.add_argument("version")
+    parser.add_argument("target_abi")
+    parser.add_argument("checksum")
+    parser.add_argument("zip_name")
+    parser.add_argument("--tag", help="Release tag the archive is attached to. Defaults to v<version>.")
+    parser.add_argument("--manifest", default="manifest.json")
+    args = parser.parse_args(argv[1:])
+
+    version, target_abi, checksum, zip_name = args.version, args.target_abi, args.checksum, args.zip_name
+    manifest_path = args.manifest
+    tag = args.tag or f"v{version}"
 
     # Jellyfin compares plugin versions as four-part System.Version values; anything else installs but
     # then sorts unpredictably against other releases.
@@ -62,17 +79,20 @@ def main(argv: list[str]) -> int:
 
     entry = {
         "version": version,
-        "changelog": f"https://github.com/{repo}/releases/tag/v{version}",
+        "changelog": f"https://github.com/{repo}/releases/tag/{tag}",
         "targetAbi": target_abi,
-        "sourceUrl": f"https://github.com/{repo}/releases/download/v{version}/{zip_name}",
+        "sourceUrl": f"https://github.com/{repo}/releases/download/{tag}/{zip_name}",
         "checksum": checksum,
         "timestamp": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
-    # Newest first: Jellyfin presents the list in order. Replacing any existing entry for the same
-    # version rather than appending keeps the workflow safe to re-run after a failure.
+    # Replacing any existing entry for the same version rather than appending keeps the workflow safe
+    # to re-run after a failure.
     existing = [v for v in plugin.get("versions", []) if v.get("version") != version]
-    plugin["versions"] = [entry] + existing
+
+    # Newest first: Jellyfin presents the list in order. Sorted rather than prepended, because one
+    # release now adds several entries and the order they arrive in must not decide the order shown.
+    plugin["versions"] = sorted([entry] + existing, key=version_key, reverse=True)
 
     with open(manifest_path, "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2, ensure_ascii=False)

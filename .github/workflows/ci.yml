@@ -17,8 +17,12 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
         with:
-          # Must match the framework Jellyfin 10.11 runs on.
-          dotnet-version: '9.0.x'
+          # One SDK per Jellyfin generation: net9.0 builds for 10.11, net10.0 for 12. The plugin and the
+          # tests target both, so each generation is compiled against its own Jellyfin packages and
+          # tested on its own runtime.
+          dotnet-version: |
+            9.0.x
+            10.0.x
 
       - name: Restore
         run: dotnet restore
@@ -29,6 +33,11 @@ jobs:
 
       - name: Test
         run: dotnet test -c Release --no-build --nologo --verbosity normal
+
+      - name: Validate build.yaml targets
+        # The release workflow reads the same list; a mistake here would otherwise only surface when
+        # a version bump tries to publish.
+        run: python3 scripts/build_targets.py
 
       - name: Validate manifest.json
         run: |

@@ -23,10 +23,10 @@ namespace Jellyfin.Plugin.ReleaseHub.Api;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A bare <see cref="AuthorizeAttribute"/> is deliberate: Jellyfin 10.11 defines no "default" named
-/// policy, and configures ASP.NET Core's <c>DefaultPolicy</c> to require its custom authentication
-/// scheme plus <c>DefaultAuthorizationRequirement</c> — which is exactly "any authenticated,
-/// non-restricted user". Naming a policy that does not exist throws at request time rather than at
+/// A bare <see cref="AuthorizeAttribute"/> is deliberate: Jellyfin (10.11 and 12 alike) defines no
+/// "default" named policy, and configures ASP.NET Core's <c>DefaultPolicy</c> to require its custom
+/// authentication scheme plus <c>DefaultAuthorizationRequirement</c> — which is exactly "any
+/// authenticated, non-restricted user". Naming a policy that does not exist throws at request time rather than at
 /// startup, so administrator-only actions use real constants from <see cref="Policies"/>.
 /// </para>
 /// <para>

@@ -7,8 +7,8 @@
 **Calendrier unifié de diffusion des séries et animés, directement dans Jellyfin.**
 
 [![CI](https://github.com/Warna-Finance-System/Jellyfin-ReleaseHub/actions/workflows/ci.yml/badge.svg)](https://github.com/Warna-Finance-System/Jellyfin-ReleaseHub/actions/workflows/ci.yml)
-![Jellyfin 10.11.x](https://img.shields.io/badge/Jellyfin-10.11.x-00a4dc)
-![.NET 9.0](https://img.shields.io/badge/.NET-9.0-512bd4)
+![Jellyfin 10.11.x | 12.x](https://img.shields.io/badge/Jellyfin-10.11.x%20%7C%2012.x-00a4dc)
+![.NET 9.0 | 10.0](https://img.shields.io/badge/.NET-9.0%20%7C%2010.0-512bd4)
 ![Licence GPL-3.0](https://img.shields.io/badge/licence-GPL--3.0-blue)
 
 </div>
@@ -44,6 +44,9 @@ arrive.
 - **Français et anglais**, avec détection automatique de la langue du client Jellyfin.
 - **Compatible thèmes** — réutilise les classes CSS natives de Jellyfin ; fonctionne avec le thème par
   défaut, Abyss et les autres, et continue de fonctionner si vous changez de thème.
+- **Jellyfin 10.11 et 12** — un build dédié à chaque génération, et une entrée adaptée aux deux mises
+  en page de jellyfin-web (l'en-tête moderne de Jellyfin 12 comme l'ancien). Voir
+  [Compatibilité](#compatibilité).
 - **Responsive** — bureau, tablette et mobile.
 - **File d'attente de confirmation** — une correspondance incertaine n'est jamais utilisée
   automatiquement ; elle attend votre validation.
@@ -66,8 +69,8 @@ arrive.
 
 | | |
 |---|---|
-| **Jellyfin** | 10.11.11 (compatible 10.11.x) |
-| **Framework** | .NET 9.0 — fourni par Jellyfin, rien à installer |
+| **Jellyfin** | 10.11.x (à partir de 10.11.11) ou 12.x |
+| **Framework** | .NET 9.0 (Jellyfin 10.11) ou .NET 10.0 (Jellyfin 12) — fourni par Jellyfin, rien à installer |
 | **Clé API TVMaze** | ❌ Aucune |
 | **Clé API AnimeSchedule** | ✅ Requise uniquement pour la partie animés |
 | **Jeton TMDb** | ✅ Requis uniquement pour la partie films |
@@ -75,17 +78,49 @@ arrive.
 
 ### À propos de File Transformation
 
-Jellyfin 10.11 **n'offre aucun mécanisme officiel** pour exposer une page de plugin aux utilisateurs
-non-administrateurs : la route `#/configurationpage` est protégée par un garde `level:"admin"`.
+Jellyfin **n'offre aucun mécanisme officiel** pour exposer une page de plugin aux utilisateurs
+non-administrateurs, ni en 10.11 ni en 12 : la route `#/configurationpage` est protégée par un garde
+`level:"admin"`.
 
 - **Sans** [File Transformation](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation) :
   ReleaseHub fonctionne pleinement, mais reste accessible depuis **Tableau de bord → ReleaseHub**,
   donc réservé aux administrateurs.
-- **Avec** File Transformation : ReleaseHub ajoute lui-même une entrée **ReleaseHub** dans le menu
-  principal, visible par **tous les utilisateurs**.
+- **Avec** File Transformation : ReleaseHub ajoute lui-même ses entrées dans l'interface, visibles
+  par **tous les utilisateurs** — voir [Compatibilité](#compatibilité) pour leur emplacement selon la
+  mise en page.
 
 La détection est automatique et se fait par réflexion, sans aucune dépendance de compilation. Si le
 plugin est absent, ReleaseHub le signale dans sa page de configuration et continue de fonctionner.
+
+## Compatibilité
+
+ReleaseHub publie **un build par génération de Jellyfin**, compilé depuis le même code contre les
+bibliothèques de chaque serveur :
+
+| Jellyfin | Version du plugin | .NET | Pourquoi un build séparé |
+|---|---|---|---|
+| 12.x (12.0, 12.1, …) | `x.y.z.12` | 10.0 | Jellyfin 12 tourne sur .NET 10 et a modifié une partie de ses API : un plugin compilé pour 10.11 peut s'y arrêter sur une `MissingMethodException` |
+| 10.11.x (à partir de 10.11.11) | `x.y.z.11` | 9.0 | Jellyfin 10.11 tourne sur .NET 9 et ne peut pas charger un assembly .NET 10 |
+
+Le catalogue de plugins choisit seul le bon build : il installe la version la plus haute dont le
+`targetAbi` est satisfait par le serveur. Un serveur mis à jour de 10.11 vers 12 se voit donc proposer
+le build 12 comme une mise à jour ordinaire.
+
+Avec File Transformation, l'entrée ReleaseHub dépend de la mise en page de jellyfin-web
+(*Paramètres → Affichage*) :
+
+| Mise en page | Quand | Entrée ReleaseHub |
+|---|---|---|
+| **Moderne** | Par défaut sur bureau et mobile depuis Jellyfin 12 (« expérimentale » en 10.11) | Un bouton **à la fin de la navigation de l'en-tête**, après les bibliothèques ; sur écran étroit, sous *Favoris* dans le menu latéral |
+| **Ancienne** | Par défaut en 10.11 ; mises en page *legacy* (bureau, mobile) et *TV* en 12 | Un onglet à côté d'*Accueil* / *Favoris*, et une entrée dans le menu latéral |
+
+Dans les deux cas l'entrée est une copie d'un élément natif : le thème actif (Abyss compris) l'habille
+comme ses voisins, sans règle spécifique. Elle est surlignée tant que ReleaseHub est ouvert, et
+ReleaseHub se referme dès que vous choisissez une autre destination dans l'en-tête.
+
+Dans l'en-tête moderne, ReleaseHub ne fait jamais grandir la barre : la rangée reste sur une ligne,
+et quand son libellé empiéterait sur les icônes voisines, ReleaseHub s'affiche en simple icône
+calendrier (avec une info-bulle). Le libellé revient dès que la fenêtre s'élargit.
 
 ## Installation
 
@@ -101,9 +136,11 @@ plugin est absent, ReleaseHub le signale dans sa page de configuration et contin
 
 ### Installation manuelle
 
-1. Téléchargez `ReleaseHub_<version>.zip` depuis la
-   [page des releases](https://github.com/Warna-Finance-System/Jellyfin-ReleaseHub/releases).
-2. Décompressez-le dans `<données Jellyfin>/plugins/ReleaseHub_<version>/`
+1. Téléchargez depuis la
+   [page des releases](https://github.com/Warna-Finance-System/Jellyfin-ReleaseHub/releases)
+   l'archive qui correspond à votre serveur : `ReleaseHub_<version>.12.zip` pour Jellyfin 12.x,
+   `ReleaseHub_<version>.11.zip` pour Jellyfin 10.11.x.
+2. Décompressez-la dans `<données Jellyfin>/plugins/ReleaseHub_<version du plugin>/`
    - Windows : `C:\ProgramData\Jellyfin\Server\plugins\`
    - Linux : `/var/lib/jellyfin/plugins/`
    - Docker : `/config/plugins/`
@@ -300,13 +337,14 @@ Aucune chaîne visible n'est codée en dur : tout passe par
 | Symptôme | Cause probable |
 |---|---|
 | Le plugin n'apparaît pas | Jellyfin n'a pas été redémarré ; les plugins ne se chargent qu'au démarrage |
-| Statut *Not Supported* | Version de Jellyfin ≠ `targetAbi`. ReleaseHub cible 10.11.11 |
+| Statut *Not Supported* | Archive d'une autre génération installée à la main : `….12.zip` pour Jellyfin 12, `….11.zip` pour 10.11 (à partir de 10.11.11) |
 | Calendrier vide | Aucune synchronisation n'a encore eu lieu → *Synchronize now* dans la configuration |
 | Une série de ma bibliothèque n'apparaît jamais | Regardez **Matches awaiting confirmation** : la correspondance était trop incertaine pour être utilisée automatiquement |
 | Aucun animé | AnimeSchedule désactivé ou sans clé API |
 | Aucun film | TMDb désactivé ou sans jeton |
 | Un film de ma bibliothèque n'a pas de suite affichée | La saga n'a pas d'entrée non sortie chez TMDb, ou *Suivre les collections* est décoché |
-| Pas d'entrée ReleaseHub dans le menu principal | File Transformation absent — ReleaseHub reste accessible depuis le tableau de bord |
+| Pas d'entrée ReleaseHub dans l'en-tête ni dans le menu | File Transformation absent — ReleaseHub reste accessible depuis le tableau de bord |
+| Sur Jellyfin 12, ReleaseHub n'apparaît que dans le tableau de bord | Version 1.0.x : elle ne connaissait que l'ancien en-tête. Mettez à jour vers le build 12 |
 | Heure absente sur un épisode | Le fournisseur n'en a pas donné. ReleaseHub n'invente pas d'heure |
 | *Voir plus* n'affiche plus rien | Vous avez atteint l'horizon de synchronisation ; ReleaseHub le dit alors explicitement plutôt que de charger des pages vides |
 | Deux carrousels superposés sur l'accueil | Le spotlight d'Abyss et le plugin Media Bar se montent au même endroit → [Interface web](#interface-web) |
@@ -343,14 +381,20 @@ télémétrie ne quitte votre serveur. Il n'existe aucun service ReleaseHub dist
 ## Développement
 
 ### Prérequis
-- SDK .NET 9.0 ou supérieur (testé avec le SDK 10.0.400 compilant vers `net9.0`)
-- Un serveur Jellyfin 10.11.x local
+- SDK .NET 10.0 ou supérieur : il compile les deux cibles, `net9.0` (Jellyfin 10.11) et `net10.0`
+  (Jellyfin 12)
+- Les runtimes .NET 9 et .NET 10 pour exécuter les tests des deux cibles
+- Un serveur Jellyfin 10.11.x ou 12.x local
 
 ### Compiler
 ```bash
-dotnet build -c Release
-dotnet test
+dotnet build -c Release   # les deux cibles, chacune contre les paquets de son serveur
+dotnet test               # la suite complète, une fois par cible
 ```
+
+Chaque cible compile contre les paquets `Jellyfin.Controller` / `Jellyfin.Model` de la plus ancienne
+version qu'elle prend en charge (10.11.11, 12.0.0) : une API qui change d'une génération à l'autre
+devient une erreur de compilation, pas un plantage chez l'utilisateur.
 
 ### Compiler et installer sur un Jellyfin local (Windows)
 ```powershell
@@ -359,10 +403,14 @@ dotnet test
 
 # Compiler sans toucher au serveur
 .\build.ps1 -SkipInstall
+
+# Compiler le build d'une autre génération
+.\build.ps1 -SkipInstall -JellyfinVersion 10.11.11
 ```
 
-Le script lit `build.yaml`, compile, copie le DLL et `logo.png` dans
-`%ProgramData%\Jellyfin\Server\plugins\ReleaseHub_<version>\` et génère `meta.json`.
+Le script lit `build.yaml`, lit la version du Jellyfin installé, compile **le build que ce serveur
+peut charger**, copie le DLL et `logo.png` dans
+`%ProgramData%\Jellyfin\Server\plugins\ReleaseHub_<version du plugin>\` et génère `meta.json`.
 
 ### Architecture
 
@@ -390,28 +438,38 @@ La version n'est déclarée qu'à un seul endroit, `build.yaml`. Montez-la, déc
 même fichier, poussez sur `main` — c'est tout :
 
 ```yaml
-version: "1.0.0.1"
+version: "1.1.0"
 changelog: |
   Ce que cette version apporte.
 ```
 
 ```bash
-git commit -am "Release 1.0.0.1" && git push
+git commit -am "Release 1.1.0" && git push
 ```
 
-Le workflow [`release.yml`](.github/workflows/release.yml) crée le tag `v1.0.0.1`, compile avec ce
-numéro, lance les tests, produit l'archive, calcule son MD5, publie la release GitHub et ajoute
-l'entrée dans `manifest.json`. Les notes de release s'ouvrent sur le `changelog` de `build.yaml` — le
-même que lit le catalogue de plugins Jellyfin, donc les deux ne peuvent pas diverger — suivi du
-changelog par commits généré par GitHub et d'un tableau de compatibilité.
+Le workflow [`release.yml`](.github/workflows/release.yml) crée le tag `v1.1.0`, lance les tests sur
+les deux cibles, puis compile et empaquette **un build par entrée de `targets`** dans `build.yaml` :
+`ReleaseHub_1.1.0.11.zip` pour Jellyfin 10.11 et `ReleaseHub_1.1.0.12.zip` pour Jellyfin 12. Il
+calcule le MD5 de chaque archive, les publie toutes sur la même release GitHub et ajoute une entrée
+par archive dans `manifest.json`. Les notes de release s'ouvrent sur le `changelog` de `build.yaml` —
+le même que lit le catalogue de plugins Jellyfin, donc les deux ne peuvent pas diverger — suivi d'un
+tableau de compatibilité (une ligne par archive) et du changelog par commits généré par GitHub.
 
 Un commit qui ne monte pas la version ne publie rien : une version dont le tag existe déjà n'est jamais
 republiée. Pousser un tag `v*` à la main, ou lancer le workflow depuis l'onglet *Actions*, reste
 possible et publie sans condition.
 
-Le numéro doit comporter **quatre parties** (`1.0.0.1`) : Jellyfin les compare comme des
-`System.Version`, et le workflow refuse tout autre format plutôt que de laisser s'installer une version
-qui se trierait ensuite n'importe comment.
+La version comporte **trois parties** (`1.1.0`) ; chaque build y ajoute sa génération de Jellyfin en
+quatrième (`1.1.0.11`, `1.1.0.12`). Jellyfin compare les versions de plugin comme des
+`System.Version` et installe la plus haute dont le `targetAbi` est satisfait : c'est ce qui fait qu'un
+serveur 12 prend le build 12 et qu'un serveur 10.11 ne le voit jamais. Le workflow refuse tout autre
+format. [`scripts/build_targets.py`](scripts/build_targets.py) lit et valide ces cibles ; le CI
+l'exécute à chaque push, pour qu'une erreur dans `build.yaml` n'apparaisse pas seulement au moment de
+publier.
+
+Pour prendre en charge une future génération de Jellyfin : ajoutez-la à `targets` dans `build.yaml`
+et à `TargetFrameworks` dans le `.csproj` (avec la version de paquets qui lui correspond), puis
+compilez — toute rupture d'API apparaîtra à la compilation.
 
 ## Licence
 

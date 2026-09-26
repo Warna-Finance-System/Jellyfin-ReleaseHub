@@ -31,9 +31,10 @@
   left: 0;
   right: 0;
   bottom: 0;
-  /* Below Jellyfin's header (999) so its tabs stay usable, but above the backdrop layers other
-     plugins paint at their own z-index. 100 was not enough: a slideshow drawing higher than that
-     came through the page. */
+  /* Below Jellyfin's header so its tabs and navigation stay usable — 999 for the legacy header, 1100
+     for the modern MUI app bar and 1200 for its drawer — but above the backdrop layers other plugins
+     paint at their own z-index. 100 was not enough: a slideshow drawing higher than that came
+     through the page. */
   z-index: 900;
   overflow-y: auto;
   overflow-x: hidden;
@@ -58,6 +59,23 @@ body.releasehub-open .backdropImage {
  */
 body.releasehub-open {
   overflow: hidden !important;
+}
+
+/*
+ * ReleaseHub's button in the modern (MUI) header, and the native one it takes the selection from.
+ *
+ * The bootstrap swaps the MUI colour classes, which is all a theme such as Abyss keys its highlight
+ * on. The default theme instead colours a selected button through generated styles that a class swap
+ * cannot change, and these two rules stand in for them, using the colour MUI itself publishes. Two
+ * classes are just enough to outrank the generated styles, and still lose to any theme rule written
+ * against the header, so a theme's own highlight always wins.
+ */
+.MuiButton-root.releasehub-nav-active {
+  color: var(--jf-palette-primary-main, currentColor);
+}
+
+.MuiButton-root.releasehub-nav-dimmed {
+  color: inherit;
 }
 
 @media (max-width: 50em) {

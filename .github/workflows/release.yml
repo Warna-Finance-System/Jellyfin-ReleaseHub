@@ -1,12 +1,16 @@
 name: Release
 
 # Publishing is driven by the version in build.yaml. Bump it, push to main, and this workflow tags
-# that version, builds it, publishes the release asset and prepends the matching entry to
-# manifest.json, so servers subscribed to the repository see the update without anyone editing the
-# manifest by hand. Pushing a v* tag or dispatching manually does the same thing on demand.
+# that version, builds it once per Jellyfin generation listed under `targets`, publishes every
+# archive on one release and adds one manifest.json entry per archive, so servers subscribed to the
+# repository see the update without anyone editing the manifest by hand. Pushing a v* tag or
+# dispatching manually does the same thing on demand.
 #
 # The tag is what makes this safe to run on every push: a version whose tag already exists is not
 # released again, so ordinary commits pass straight through.
+#
+# Versions: the tag carries ReleaseHub's version (v1.1.0); each archive carries that version plus its
+# Jellyfin generation (1.1.0.11 for 10.11, 1.1.0.12 for 12). scripts/build_targets.py explains why.
 on:
   push:
     branches:
@@ -71,10 +75,10 @@ jobs:
             exit 1
           fi
 
-          # Jellyfin compares plugin versions as four-part System.Version values, so reject anything
-          # that would install but then sort unpredictably against other releases.
-          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::Version '$VERSION' must have four numeric parts, for example 1.0.0.1"
+          # Three parts: each build appends its Jellyfin generation as the fourth, which is what makes
+          # Jellyfin (comparing four-part System.Version values) pick the right build per server.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Version '$VERSION' must have three numeric parts, for example 1.1.0"
             exit 1
           fi
 
@@ -118,58 +122,56 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Read target ABI from build.yaml
-        id: abi
-        run: |
-          ABI=$(grep -E '^targetAbi:' build.yaml | sed -E 's/.*"(.*)".*/\1/')
-          if [ -z "$ABI" ]; then
-            echo "::error::targetAbi is missing from build.yaml"
-            exit 1
-          fi
-          echo "abi=$ABI" >> "$GITHUB_OUTPUT"
-
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
         with:
-          # Jellyfin 10.11 runs on net9.0; the plugin must target it exactly.
-          dotnet-version: '9.0.x'
-
-      - name: Build
-        run: |
-          dotnet build src/Jellyfin.Plugin.ReleaseHub/Jellyfin.Plugin.ReleaseHub.csproj \
-            -c Release \
-            -o artifacts \
-            -p:Version=${{ needs.decide.outputs.version }} \
-            -p:AssemblyVersion=${{ needs.decide.outputs.version }} \
-            -p:FileVersion=${{ needs.decide.outputs.version }}
+          # One SDK per Jellyfin generation: net9.0 builds for 10.11, net10.0 for 12.
+          dotnet-version: |
+            9.0.x
+            10.0.x
 
       - name: Run tests
+        # Runs the suite once per target framework, so neither build ships untested.
         run: dotnet test -c Release --nologo
 
-      - name: Package
-        id: package
+      - name: Build and package every target
         run: |
           set -euo pipefail
           VERSION="${{ needs.decide.outputs.version }}"
-          ZIP="ReleaseHub_${VERSION}.zip"
+          PROJECT=src/Jellyfin.Plugin.ReleaseHub/Jellyfin.Plugin.ReleaseHub.csproj
 
-          # Jellyfin extracts the archive straight into plugins/<name>_<version>/, so the assembly has
-          # to sit at the archive root rather than inside a folder.
-          mkdir -p package
-          cp artifacts/Jellyfin.Plugin.ReleaseHub.dll package/
-          (cd package && zip -r "../$ZIP" .)
+          # One line per Jellyfin generation: generation, framework, targetAbi, plugin version, label.
+          # It also validates build.yaml, and fails the job before anything is published.
+          python3 scripts/build_targets.py "$VERSION" > targets.tsv
+          mkdir -p dist
+          : > packages.tsv
 
-          CHECKSUM=$(md5sum "$ZIP" | cut -d' ' -f1 | tr '[:lower:]' '[:upper:]')
+          # Read through descriptor 3 so that nothing inside the loop can swallow the remaining lines
+          # from stdin.
+          while IFS=$'\t' read -r GENERATION FRAMEWORK ABI PLUGIN_VERSION LABEL <&3; do
+            OUT="artifacts/$FRAMEWORK"
+            ZIP="ReleaseHub_${PLUGIN_VERSION}.zip"
 
-          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
-          echo "checksum=$CHECKSUM" >> "$GITHUB_OUTPUT"
-          echo "Packaged $ZIP with checksum $CHECKSUM"
+            dotnet build "$PROJECT" -c Release -f "$FRAMEWORK" -o "$OUT" --nologo \
+              -p:Version="$PLUGIN_VERSION" \
+              -p:AssemblyVersion="$PLUGIN_VERSION" \
+              -p:FileVersion="$PLUGIN_VERSION"
+
+            # Jellyfin extracts the archive straight into plugins/<name>_<version>/, so the assembly
+            # has to sit at the archive root rather than inside a folder.
+            rm -rf package && mkdir package
+            cp "$OUT/Jellyfin.Plugin.ReleaseHub.dll" package/
+            (cd package && zip -r "../dist/$ZIP" .)
+
+            CHECKSUM=$(md5sum "dist/$ZIP" | cut -d' ' -f1 | tr '[:lower:]' '[:upper:]')
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+              "$LABEL" "$PLUGIN_VERSION" "$ABI" "$FRAMEWORK" "$ZIP" "$CHECKSUM" >> packages.tsv
+            echo "Packaged $ZIP for Jellyfin $LABEL (targetAbi $ABI, $FRAMEWORK), checksum $CHECKSUM"
+          done 3< targets.tsv
 
       - name: Compose release notes
-        id: notes
         run: |
           set -euo pipefail
-          VERSION="${{ needs.decide.outputs.version }}"
           REPO="${{ github.repository }}"
 
           # The changelog lives in build.yaml as a folded block, which is also what Jellyfin's own
@@ -198,7 +200,8 @@ jobs:
           **Via the plugin repository (recommended)**
 
           Dashboard -> Plugins -> Repositories -> `+`, then add the manifest URL below, install
-          **Jellyfin ReleaseHub** from the catalogue, and restart Jellyfin.
+          **Jellyfin ReleaseHub** from the catalogue, and restart Jellyfin. The catalogue installs the
+          build that matches your server on its own.
 
           ```
           MANIFEST_URL
@@ -206,27 +209,27 @@ jobs:
 
           **Manual**
 
-          Download the archive below and extract it into
-          `<jellyfin-data>/plugins/ReleaseHub_VERSION/`, then restart Jellyfin.
+          Download the archive for your Jellyfin version from the table below and extract it into
+          `<jellyfin-data>/plugins/ReleaseHub_<plugin version>/`, then restart Jellyfin.
 
           ## Compatibility
 
-          | | |
-          |---|---|
-          | Jellyfin target ABI | `TARGET_ABI` |
-          | Framework | net9.0 |
-          | Archive MD5 | `CHECKSUM` |
-
-          Plugins are only loaded at startup, so Jellyfin must be restarted after installing.
+          | Jellyfin | Archive | Plugin version | Target ABI | Framework | Archive MD5 |
+          |---|---|---|---|---|---|
           NOTES
 
+          # Newest server generation first.
+          tac packages.tsv | while IFS=$'\t' read -r LABEL PLUGIN_VERSION ABI FRAMEWORK ZIP CHECKSUM; do
+            echo "| $LABEL | \`$ZIP\` | \`$PLUGIN_VERSION\` | \`$ABI\` | $FRAMEWORK | \`$CHECKSUM\` |"
+          done >> release-notes.md
+
+          {
+            echo ""
+            echo "Plugins are only loaded at startup, so Jellyfin must be restarted after installing."
+          } >> release-notes.md
+
           # Substituted afterwards so the heredoc itself stays literal.
-          sed -i \
-            -e "s#MANIFEST_URL#https://raw.githubusercontent.com/${REPO}/main/manifest.json#" \
-            -e "s#VERSION#${VERSION}#g" \
-            -e "s#TARGET_ABI#${{ steps.abi.outputs.abi }}#" \
-            -e "s#CHECKSUM#${{ steps.package.outputs.checksum }}#" \
-            release-notes.md
+          sed -i -e "s#MANIFEST_URL#https://raw.githubusercontent.com/${REPO}/main/manifest.json#" release-notes.md
 
           cat release-notes.md
 
@@ -236,7 +239,8 @@ jobs:
           tag_name: ${{ needs.decide.outputs.tag }}
           name: ReleaseHub ${{ needs.decide.outputs.version }}
           body_path: release-notes.md
-          files: ${{ steps.package.outputs.zip }}
+          # Every archive on the one release: one per Jellyfin generation.
+          files: dist/*.zip
           # Creates the tag on the commit being released when it does not exist yet, which is what
           # makes a version bump on main enough to publish.
           target_commitish: ${{ github.sha }}
@@ -246,11 +250,14 @@ jobs:
 
       - name: Update manifest.json
         run: |
-          python3 scripts/update_manifest.py \
-            "${{ needs.decide.outputs.version }}" \
-            "${{ steps.abi.outputs.abi }}" \
-            "${{ steps.package.outputs.checksum }}" \
-            "${{ steps.package.outputs.zip }}"
+          set -euo pipefail
+
+          # One entry per archive. update_manifest.py keeps the list sorted newest first, so the order
+          # of this loop does not matter.
+          while IFS=$'\t' read -r LABEL PLUGIN_VERSION ABI FRAMEWORK ZIP CHECKSUM <&3; do
+            python3 scripts/update_manifest.py "$PLUGIN_VERSION" "$ABI" "$CHECKSUM" "$ZIP" \
+              --tag "${{ needs.decide.outputs.tag }}"
+          done 3< packages.tsv
 
       - name: Commit manifest
         run: |
@@ -269,13 +276,11 @@ jobs:
       - name: Summarise
         run: |
           {
-            echo "### Published"
+            echo "### Published ReleaseHub ${{ needs.decide.outputs.version }} (\`${{ needs.decide.outputs.tag }}\`)"
             echo ""
-            echo "| | |"
-            echo "|---|---|"
-            echo "| Version | \`${{ needs.decide.outputs.version }}\` |"
-            echo "| Tag | \`${{ needs.decide.outputs.tag }}\` |"
-            echo "| Archive | \`${{ steps.package.outputs.zip }}\` |"
-            echo "| MD5 | \`${{ steps.package.outputs.checksum }}\` |"
-            echo "| Target ABI | \`${{ steps.abi.outputs.abi }}\` |"
+            echo "| Jellyfin | Archive | Plugin version | Target ABI | Framework | MD5 |"
+            echo "|---|---|---|---|---|---|"
+            tac packages.tsv | while IFS=$'\t' read -r LABEL PLUGIN_VERSION ABI FRAMEWORK ZIP CHECKSUM; do
+              echo "| $LABEL | \`$ZIP\` | \`$PLUGIN_VERSION\` | \`$ABI\` | $FRAMEWORK | \`$CHECKSUM\` |"
+            done
           } >> "$GITHUB_STEP_SUMMARY"
